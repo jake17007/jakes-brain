@@ -14,6 +14,7 @@
     "workout",
     "food",
     "habits",
+    "sleep",
     "weather",
     "files",
     "reels",
@@ -128,6 +129,10 @@
     "food": {
       "label": "Food",
       "color": "#ca8a04"
+    },
+    "sleep": {
+      "label": "Sleep",
+      "color": "#0d9488"
     }
   }
 }
