@@ -1,10 +1,14 @@
-/* JakeTube app: home (chips + search + cards) and the watch page. */
+/* JakeTube app: home (chips + feed cards) and the watch pages (YouTube embed, PC file). */
 
 /* ------------------------------------------------------------------ home */
 
-.app-jaketube .tube-chips { margin-bottom: 6px; }
+.app-jaketube .tube-chips { margin-bottom: 16px; }
 
-.app-jaketube .tube-search { margin-bottom: 16px; }
+.app-jaketube .tube-stale {
+  margin: -6px 2px 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
 
 .app-jaketube .tube-list {
   display: flex;
@@ -26,8 +30,7 @@
   outline-offset: 3px;
 }
 
-/* 16:9 box with the JPEG (or a glyph while it is still being made), the duration pill and
-   the red watched bar. */
+/* 16:9 box with the thumbnail and the "Short" pill. */
 .app-jaketube .tube-thumb {
   position: relative;
   width: 100%;
@@ -47,17 +50,6 @@
   -webkit-user-drag: none;
 }
 
-.app-jaketube .tube-thumb.portrait { background: #000; }
-.app-jaketube .tube-thumb.portrait img { object-fit: contain; }
-
-.app-jaketube .tube-thumb-empty {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
 .app-jaketube .tube-dur {
   position: absolute;
   right: 8px;
@@ -72,23 +64,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-.app-jaketube .tube-progress {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.35);
-}
-
-.app-jaketube .tube-progress-fill {
-  height: 100%;
-  background: #e62117;
-}
-
 .app-jaketube .tube-card-text { padding: 9px 2px 0; }
 
 .app-jaketube .tube-card-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   font-size: 16px;
   font-weight: 600;
   line-height: 1.3;
@@ -101,14 +83,6 @@
   color: var(--muted);
 }
 
-.app-jaketube .tube-note {
-  margin: 32px 8px 0;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--muted);
-  text-align: center;
-}
-
 /* ------------------------------------------------------------------ watch */
 
 /* The player sits flush under the nav bar, edge to edge; the text below keeps the usual
@@ -117,13 +91,24 @@
 
 .app-jaketube .tube-player { background: #000; }
 
-.app-jaketube .tube-video {
+.app-jaketube .tube-video,
+.app-jaketube .tube-frame {
   display: block;
+  border: 0;
   width: 100%;
   aspect-ratio: 16 / 9;
   max-height: 72vh;
   background: #000;
   object-fit: contain;
+}
+
+/* A Short plays in a 9:16 player, centred on black. */
+.app-jaketube .tube-player.portrait .tube-frame {
+  width: auto;
+  height: min(72vh, 680px);
+  aspect-ratio: 9 / 16;
+  max-width: 100%;
+  margin: 0 auto;
 }
 
 .app-jaketube .tube-info,
@@ -162,6 +147,31 @@
 }
 
 .app-jaketube .tube-resume:active { opacity: 0.6; }
+
+a.tube-resume { text-decoration: none; }
+
+.app-jaketube .tube-desc {
+  margin: 14px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-jaketube .tube-desc.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.app-jaketube .tube-more {
+  margin-top: 4px;
+  padding: 4px 0;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
 
 .app-jaketube .tube-notice {
   margin: 12px 0 0;
@@ -222,7 +232,7 @@
 .app-jaketube .tube-card,
 .app-jaketube .tube-up,
 .app-jaketube .tube-resume,
-.app-jaketube .tube-note {
+.app-jaketube .tube-more {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
@@ -250,6 +260,7 @@
     max-width: 1400px;
     display: grid;
     grid-template-columns: minmax(0, 1fr) 380px;
+    grid-template-rows: auto 1fr; /* a long aside grows the second row, not the player's */
     grid-template-areas:
       "player aside"
       "info aside";
@@ -264,7 +275,9 @@
     overflow: hidden;
   }
 
-  .app-jaketube.full-bleed .tube-video { max-height: calc(100vh - var(--nav-h) - 140px); }
+  .app-jaketube.full-bleed .tube-video,
+  .app-jaketube.full-bleed .tube-frame { max-height: calc(100vh - var(--nav-h) - 140px); }
+  .app-jaketube.full-bleed .tube-player.portrait .tube-frame { height: calc(100vh - var(--nav-h) - 140px); }
 
   .app-jaketube.full-bleed .tube-info {
     grid-area: info;

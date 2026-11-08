@@ -24,7 +24,7 @@ The first screen is a home screen: a grid of tiles plus a dock. Each tile is one
 | Food | calorie + macro log: today against goals, entries by meal, 30-day history, one-tap usuals. Claude logs to it through the connector |
 | Calendar | month grid, day agenda, events |
 | Jakestagram | private Instagram: post photos and videos from the phone, feed + grid, hearts |
-| JakeTube | private YouTube over the PC's videos (daily auto-vlogs, raw Pocket 3, game captures) |
+| JakeTube | YouTube feed of jvscholz, sentdex and Tina Huang (newest uploads, played in the app) |
 | JakeGPT | private ChatGPT on the PC's Ollama, streaming, conversations saved |
 | Habits | daily check-ins, streaks, 7-day strip |
 | Files | read-only browser of PC folders with previews |

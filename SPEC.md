@@ -72,7 +72,7 @@ playback and photo/camera pickers enabled.
 | `tasks` | Tasks | #5e5ce6 | the v1 checklist (the old `notes` table, renamed `tasks`); badge = open count |
 | `calendar` | Calendar | white tile, red day number (like iOS) | month grid + day agenda + events |
 | `jakestagram` | Jakestagram | #e1306c | private Instagram: post photos/videos from the phone, feed + grid profile, hearts |
-| `jaketube` | JakeTube | #e62117 | private YouTube over the PC's videos (daily auto-vlogs, raw Pocket 3, game captures) |
+| `jaketube` | JakeTube | #e62117 | YouTube feed of jvscholz, sentdex and Tina Huang (newest uploads, played in the app) |
 | `jakegpt` | JakeGPT | #10a37f | private ChatGPT on the PC's Ollama (streaming), conversations saved |
 | `habits` | Habits | #ff9f0a | daily habits, streaks, 7-day strip |
 | `files` | Files | #0a84ff | read-only browser of PC folders with image/video/text preview |
@@ -285,26 +285,39 @@ without media work). All inputs validated (400), missing rows 404.
   `…` menu (a small sheet with Delete / Copy caption? keep: Delete only).
 
 ### jaketube
-- Table `tube_videos(id TEXT PRIMARY KEY /* sha1(realpath) first 16 */, channel, path /* realpath */, name, size, mtime, duration REAL|NULL, width, height, thumb TEXT|NULL, probed_at)`,
+- Home = a YouTube feed, not the PC's files. Channels = `cfg.youtubeChannels`
+  (`[{ "id": "UC…", "name": "…", "handle": "@…" }]`), default jvscholz (UCcaTUtGzOiS4cqrgtcsHYWg),
+  sentdex (UCfzlCWGWYyIQ0aLC5w48gBQ) and Tina Huang (@TinaHuang1, UC2UXDak6o7rBm23k3Vv5dww).
+  To add one, get the channel id from the `<link rel="canonical">` of `youtube.com/@handle`.
+- Table `tube_feed(id /* YouTube video id */, channel_id, title, description, published, views, short 0|1, seen_at)`.
+  Each channel's public RSS (`youtube.com/feeds/videos.xml?channel_id=`, no API key, newest 15
+  uploads) is read at most every 15 min (every minute while the last read failed, and the
+  floor for `refresh=1`); entries are kept, so the feed grows past 15 per channel and still
+  shows when YouTube is unreachable (`stale: true`). An entry missing from a feed that still
+  covers its date was taken down and is dropped. Shorts = the feed links to `/shorts/`.
+- `GET /api/jaketube/feed?channel=&refresh=1` → `{ channels, videos, fetched_at, stale }` (newest
+  first, max 300), `GET /api/jaketube/feed/:id` → `{ video }`.
+- UI: home = channel chips (All + each channel) + a Refresh button + cards (16:9 thumb from
+  i.ytimg.com, a "Short" pill, subtitle = channel · views · age). Watch page
+  (`#/jaketube/v/<id>`): the youtube-nocookie embed (9:16 for a Short; the iframe needs
+  `referrerpolicy="strict-origin-when-cross-origin"` because the gateway sends
+  `Referrer-Policy: same-origin` and the embed will not play without a referrer), title, meta,
+  "Open in YouTube" (target=_blank: the iOS shell hands it to the YouTube app), the
+  description (4 lines, Show more), then more from the same channel. holdReload while open.
+- PC files: still served for the Day Log "Watch this vlog" button and Graph video nodes, which
+  open `#/jaketube/watch/<id>` (the old player, now without Up next); the home no longer lists them.
+  Table `tube_videos(id TEXT PRIMARY KEY /* sha1(realpath) first 16 */, channel, path /* realpath */, name, size, mtime, duration REAL|NULL, width, height, thumb TEXT|NULL, probed_at)`,
   `tube_progress(video_id PRIMARY KEY, seconds REAL, duration REAL, updated_at)`.
-- Scan: `GET /api/jaketube/videos?channel=&q=` lists videos (newest mtime first) from a scan of
+  Scan: `GET /api/jaketube/videos?channel=&q=` lists videos (newest mtime first) from a scan of
   `cfg.videoChannels` (extensions mp4 mov m4v mkv webm; cache the directory scan 60 s; upsert
   rows; rows whose file vanished are dropped). Probing (duration/dims via ffprobe) and thumbs
   (ffmpeg frame at min(10 % of duration, 30 s), 480px wide JPEG into `DATA/cache/jaketube/<id>.jpg`)
-  happen lazily in the background queue after a list call; the list returns `thumb: null`
-  until ready, and the client re-fetches the list once after 4 s if any thumb was null.
+  happen lazily in the background queue after a list call.
   `GET /api/jaketube/videos/:id`, `GET /api/jaketube/stream/:id` → the file with Range support
   (this is what `<video src>` uses), `GET /api/jaketube/channels` → `[{id,name,count}]`,
-  `GET/PUT /api/jaketube/progress/:id` ({seconds, duration}).
-- UI: home = channel chips (All + each channel) + search + a list of cards (16:9 thumb with a
-  duration pill, title = the file name made readable: `2026-10-15.mp4` → "Oct 15, 2026",
-  `2026-10-15_19-07-48.mp4` → "Oct 15, 2026 · 7:07 PM", other names → stem; subtitle = channel ·
-  size; a thin red progress bar on the thumb when partly watched). Watch page
-  (`#/jaketube/watch/<id>`): `<video controls playsinline autoplay>` 16:9 at the top, title,
-  meta, "Resume from 12:34" if progress exists (seek on loadedmetadata), save progress every
-  5 s and on pause/unmount, then an "Up next" list (same channel). holdReload while playing.
-  Note in the About/Settings of JakeTube (one line): 4K files stream as-is, so over Tailscale
-  they may buffer; LAN is fine.
+  `GET/PUT /api/jaketube/progress/:id` ({seconds, duration}). Watch page: `<video controls
+  playsinline autoplay>`, title = the file name made readable (`2026-10-15.mp4` → "Oct 15,
+  2026"), meta, "Resume from 12:34", progress saved every 5 s and on pause/unmount.
 
 ### jakegpt
 - Tables `gpt_conversations(id, title, model, created_at, updated_at)`, `gpt_messages(id, conversation_id, role 'user'|'assistant'|'system', content, created_at)`.
