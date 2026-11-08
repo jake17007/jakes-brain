@@ -1,6 +1,18 @@
-// JakeTube: a private YouTube over the PC's video folders. Channels come from
-// cfg.videoChannels ({ id, name, paths, recursive }); nothing is uploaded or copied, the
-// files are streamed from where they are.
+// JakeTube: a YouTube feed of a few channels, plus the player for the PC's own video files.
+//
+// Feed: cfg.youtubeChannels ([{ id: 'UC…', name, handle }]; default jvscholz, sentdex and Tina
+// Huang). Each channel's public RSS feed (no API key, the newest 15 uploads) is re-read at
+// most every 15 min, or every minute while the last read failed or with refresh=1. Every
+// entry is kept in tube_feed, so the feed grows past 15 per channel and still shows when
+// YouTube is unreachable (stale: true); an entry missing from a feed that still covers its
+// date was deleted or made private, so it is dropped.
+//
+//   GET /api/jaketube/feed?channel=&refresh=1  -> { channels: [{ id, name, handle }], videos: [...], fetched_at, stale }
+//   GET /api/jaketube/feed/:id                 -> { video }     (YouTube's 11-character id)
+//
+// PC files: channels come from cfg.videoChannels ({ id, name, paths, recursive }); nothing is
+// uploaded or copied, the files are streamed from where they are. The JakeTube home no longer
+// lists them; the Day Log "Watch this vlog" button and Graph video nodes open them by id.
 //
 //   GET /api/jaketube/channels                 -> [{ id, name, count }]
 //   GET /api/jaketube/videos?channel=&q=       -> { videos: [...], scanned_at }   newest mtime first
@@ -34,6 +46,18 @@ const THUMB_TIMEOUT_MS = 90_000;           // a 4K file on the PC: seeking + dec
 const THUMB_WIDTH = 480;
 const THUMB_MAX_OFFSET_S = 30;
 const MAX_SECONDS = 10 * 24 * 3600;        // progress sanity cap (10 days)
+const FEED_URL = 'https://www.youtube.com/feeds/videos.xml?channel_id=';
+const FEED_TTL_MS = 15 * 60_000;
+const FEED_RETRY_MS = 60_000;              // after a failed read, and the floor for refresh=1
+const FEED_TIMEOUT_MS = 6_000;             // under the web app's 8 s request timeout
+const FEED_LIMIT = 300;
+const YT_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const YT_CHANNEL_RE = /^UC[A-Za-z0-9_-]{22}$/;
+const DEFAULT_YOUTUBE_CHANNELS = [
+  { id: 'UCcaTUtGzOiS4cqrgtcsHYWg', name: 'jvscholz', handle: '@jvscholz' },
+  { id: 'UCfzlCWGWYyIQ0aLC5w48gBQ', name: 'sentdex', handle: '@sentdex' },
+  { id: 'UC2UXDak6o7rBm23k3Vv5dww', name: 'Tina Huang', handle: '@TinaHuang1' },
+];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default {
@@ -64,6 +88,22 @@ export default {
         );
       `,
     },
+    {
+      id: 'jaketube-2',
+      sql: `
+        CREATE TABLE IF NOT EXISTS tube_feed (
+          id          TEXT    PRIMARY KEY,
+          channel_id  TEXT    NOT NULL,
+          title       TEXT    NOT NULL,
+          description TEXT    NOT NULL DEFAULT '',
+          published   TEXT    NOT NULL,
+          views       INTEGER,
+          short       INTEGER NOT NULL DEFAULT 0,
+          seen_at     TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS tube_feed_channel_published ON tube_feed (channel_id, published DESC);
+      `,
+    },
   ],
   register(r, ctx) {
     const channels = readChannels(ctx.cfg, ctx.expandHome, ctx.log);
@@ -72,6 +112,51 @@ export default {
     const repo = videosRepo(ctx.db);
     const library = createLibrary({ channels, repo, thumbDir, tools: ctx.tools, log: ctx.log });
     ctx.log.info(`channels: ${channels.length ? channels.map((c) => c.id).join(', ') : '(none)'}; thumbs in ${thumbDir}`);
+    const ytChannels = readYoutubeChannels(ctx.cfg, ctx.log);
+    const ytById = new Map(ytChannels.map((c) => [c.id, c]));
+    const feedRows = feedRepo(ctx.db);
+    const feed = createFeed({ channels: ytChannels, repo: feedRows, log: ctx.log });
+
+    function toFeedVideo(row) {
+      const ch = ytById.get(row.channel_id);
+      const short = Boolean(row.short);
+      return {
+        id: row.id,
+        channel: row.channel_id,
+        channel_name: ch ? ch.name : row.channel_id,
+        title: row.title,
+        description: row.description,
+        published: row.published,
+        views: row.views == null ? null : Number(row.views),
+        short,
+        url: short ? `https://www.youtube.com/shorts/${row.id}` : `https://www.youtube.com/watch?v=${row.id}`,
+        thumb: `https://i.ytimg.com/vi/${row.id}/hqdefault.jpg`,
+      };
+    }
+
+    r.get('/api/jaketube/feed', async (req, res, { query }) => {
+      const channel = query.channel === undefined || query.channel === '' ? '' : String(query.channel);
+      if (channel && !ytById.has(channel)) throw new HttpError(400, 'unknown channel');
+      await feed.ensureFresh({ force: query.refresh === '1' });
+      return {
+        channels: ytChannels.map(({ id, name, handle }) => ({ id, name, handle })),
+        videos: feedRows.list(channel ? [channel] : [...ytById.keys()]).map(toFeedVideo),
+        fetched_at: feed.fetchedAt(),
+        stale: feed.stale(),
+      };
+    });
+
+    r.get('/api/jaketube/feed/:id', async (req, res, { params }) => {
+      const id = String(params.id == null ? '' : params.id);
+      if (!YT_ID_RE.test(id)) throw new HttpError(400, 'bad video id');
+      let row = feedRows.get(id);
+      if (!row) {
+        await feed.ensureFresh();
+        row = feedRows.get(id);
+      }
+      if (!row || !ytById.has(row.channel_id)) throw new HttpError(404, 'video not found');
+      return { video: toFeedVideo(row) };
+    });
 
     // A row by id (400 on a malformed id, 404 when unknown). A deep link to a video the
     // database has not seen yet (fresh data dir) gets one scan before the 404.
@@ -243,6 +328,147 @@ export function readableName(name) {
 
 function idFor(realPath) {
   return crypto.createHash('sha1').update(realPath).digest('hex').slice(0, 16);
+}
+
+// ---------------------------------------------------------------- YouTube feed
+
+// cfg.youtubeChannels -> [{ id, name, handle }], or the default three when it is not set.
+function readYoutubeChannels(cfg, log) {
+  if (!cfg || !Array.isArray(cfg.youtubeChannels)) return DEFAULT_YOUTUBE_CHANNELS;
+  const out = [];
+  for (const entry of cfg.youtubeChannels) {
+    const id = entry && typeof entry.id === 'string' ? entry.id.trim() : '';
+    if (!YT_CHANNEL_RE.test(id) || out.some((c) => c.id === id)) {
+      log.warn(`youtubeChannels: skipping an entry with a bad or duplicate id ${JSON.stringify(entry && entry.id)}`);
+      continue;
+    }
+    const handle = typeof entry.handle === 'string' ? entry.handle.trim() : '';
+    const name = typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : handle.replace(/^@/, '') || id;
+    out.push({ id, name, handle });
+  }
+  return out;
+}
+
+function createFeed({ channels, repo, log }) {
+  let fetchedAt = 0;
+  let stale = false;
+  let inflight = null;
+
+  // Resolves once the feeds are fresh enough; concurrent callers share one read. A channel
+  // that fails keeps its saved entries and marks the whole feed stale until a read succeeds.
+  function ensureFresh({ force = false } = {}) {
+    if (inflight) return inflight;
+    const ttl = force || stale ? FEED_RETRY_MS : FEED_TTL_MS;
+    if (fetchedAt && Date.now() - fetchedAt < ttl) return Promise.resolve();
+    inflight = refresh().finally(() => {
+      inflight = null;
+    });
+    return inflight;
+  }
+
+  async function refresh() {
+    const results = await Promise.allSettled(channels.map((ch) => fetchChannel(ch)));
+    let failed = 0;
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled') {
+        repo.replaceWindow(channels[i].id, result.value);
+      } else {
+        failed += 1;
+        log.warn(`feed ${channels[i].name}: ${result.reason && result.reason.message ? result.reason.message : result.reason}`);
+      }
+    });
+    stale = failed > 0;
+    fetchedAt = Date.now();
+  }
+
+  return {
+    ensureFresh,
+    fetchedAt: () => (fetchedAt ? new Date(fetchedAt).toISOString() : null),
+    stale: () => stale,
+  };
+}
+
+async function fetchChannel(ch) {
+  const res = await fetch(FEED_URL + ch.id, {
+    signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
+    headers: { accept: 'application/atom+xml, application/xml;q=0.9, */*;q=0.5' },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const entries = parseFeed(await res.text(), ch.id);
+  if (!entries.length) throw new Error('the feed had no entries');
+  return entries;
+}
+
+// The Atom feed is regular enough for a few patterns; anything that does not parse is skipped.
+export function parseFeed(xml, channelId) {
+  const out = [];
+  for (const [, entry] of String(xml).matchAll(/<entry>([\s\S]*?)<\/entry>/g)) {
+    const id = textOf(entry, 'yt:videoId');
+    const published = Date.parse(textOf(entry, 'published'));
+    if (!YT_ID_RE.test(id) || !Number.isFinite(published)) continue;
+    const link = /<link rel="alternate" href="([^"]*)"/.exec(entry);
+    const views = /<media:statistics views="(\d+)"/.exec(entry);
+    out.push({
+      id,
+      channel_id: channelId,
+      title: decodeXml(textOf(entry, 'title')).trim() || 'Untitled',
+      description: decodeXml(textOf(entry, 'media:description')).trim(),
+      published: new Date(published).toISOString(),
+      views: views ? Number(views[1]) : null,
+      short: link && link[1].includes('/shorts/') ? 1 : 0,
+    });
+  }
+  return out;
+}
+
+function textOf(xml, tag) {
+  const m = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(xml);
+  return m ? m[1] : '';
+}
+
+const XML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+
+function decodeXml(text) {
+  return String(text).replace(/&(?:#(\d+)|#x([0-9a-f]+)|(amp|lt|gt|quot|apos));/gi, (match, dec, hex, named) => {
+    if (named) return XML_ENTITIES[named.toLowerCase()];
+    const code = dec ? Number(dec) : parseInt(hex, 16);
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
+  });
+}
+
+function feedRepo(db) {
+  const getStmt = db.prepare('SELECT * FROM tube_feed WHERE id = ?');
+  const upsertStmt = db.prepare(`
+    INSERT INTO tube_feed (id, channel_id, title, description, published, views, short, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET channel_id = excluded.channel_id, title = excluded.title, description = excluded.description,
+      published = excluded.published, views = COALESCE(excluded.views, tube_feed.views), short = excluded.short, seen_at = excluded.seen_at`);
+  const windowStmt = db.prepare('SELECT id FROM tube_feed WHERE channel_id = ? AND published >= ?');
+  const deleteStmt = db.prepare('DELETE FROM tube_feed WHERE id = ?');
+
+  return {
+    get: (id) => getStmt.get(id) || null,
+    list(channelIds) {
+      if (!channelIds.length) return [];
+      const marks = channelIds.map(() => '?').join(', ');
+      return db.prepare(`SELECT * FROM tube_feed WHERE channel_id IN (${marks}) ORDER BY published DESC LIMIT ?`).all(...channelIds, FEED_LIMIT);
+    },
+    // Upserts one channel's feed and drops the saved entries it no longer lists from the
+    // span it still covers (the feed is the newest uploads, so those were taken down).
+    replaceWindow(channelId, entries) {
+      const now = new Date().toISOString();
+      const ids = new Set(entries.map((e) => e.id));
+      const oldest = entries.reduce((min, e) => (e.published < min ? e.published : min), entries[0].published);
+      db.exec('BEGIN');
+      try {
+        for (const e of entries) upsertStmt.run(e.id, channelId, e.title, e.description, e.published, e.views, e.short, now);
+        for (const row of windowStmt.all(channelId, oldest)) if (!ids.has(String(row.id))) deleteStmt.run(row.id);
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      }
+    },
+  };
 }
 
 // ---------------------------------------------------------------- scan + probe

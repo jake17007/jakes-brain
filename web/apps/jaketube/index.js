@@ -1,25 +1,31 @@
-// JakeTube: a private YouTube over the PC's video folders. Home (#/jaketube) = channel chips
-// + search + a list of cards (16:9 thumb, duration pill, a thin red bar when partly
-// watched). Watch (#/jaketube/watch/<id>) = <video controls playsinline autoplay> streamed
-// from /api/jaketube/stream/<id> (Range), "Resume from 12:34" when progress exists, progress
-// saved every 5 s and on pause/unmount, then "Up next" from the same channel. The reload is
-// held while typing in the search field and while a video is playing.
+// JakeTube: a YouTube feed of a few channels (jvscholz, sentdex and Tina Huang unless the
+// server's cfg.youtubeChannels says otherwise). Home (#/jaketube) = channel chips + the newest
+// uploads as cards (16:9 thumb, a "Short" pill, channel · views · age). Watch
+// (#/jaketube/v/<id>) = the YouTube player embedded, title, meta, "Open in YouTube", the
+// description, then more from the same channel. The reload is held while a watch page is open.
+//
+// #/jaketube/watch/<id> still plays a file from the PC's video folders (<video> streamed from
+// /api/jaketube/stream/<id>, "Resume from 12:34", progress saved every 5 s and on
+// pause/unmount): the Day Log "Watch this vlog" button and Graph video nodes link there, but
+// the home no longer lists those files.
 import * as kit from '../../kit.js';
 
-const { api, el, fmt, toast, haptic, navbar, section, emptyState, holdReload, releaseReload, store, debounce, icon, nav } = kit;
+const { api, el, fmt, toast, haptic, navbar, navButton, section, emptyState, holdReload, releaseReload, store, nav } = kit;
 
-const CHANNEL_KEY = 'jaketube.channel';   // the chip that was selected last time
-const HOLD_TYPING = 'jaketube:typing';
+const CHANNEL_KEY = 'jaketube.feedChannel'; // the chip that was selected last time
+const HOLD_WATCHING = 'jaketube:watching';
 const HOLD_PLAYING = 'jaketube:playing';
+const EMBED_URL = 'https://www.youtube-nocookie.com/embed/';
+const MORE_MAX = 20;
+const DESC_CLAMP_LINES = 4;
+const DESC_CLAMP_CHARS = 240;
 const SAVE_EVERY_MS = 5_000;
-const THUMB_RECHECK_MS = 4_000;           // the list is fetched once more when thumbs were still missing
 const RESUME_MIN_S = 5;                   // no "Resume from" inside the first 5 s (10 % of a short clip)
 const RESUME_TAIL_S = 10;                 // or the last 10 s (5 % of a short clip): that one is watched
-const UP_NEXT_MAX = 20;
 const WIDE_QUERY = '(min-width: 700px)';  // the watch page takes the whole window on the PC
-const ABOUT_LINE = '4K files stream as-is, so over Tailscale they may buffer; LAN is fine.';
+const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
 
-let app = null; // { root, view, channel, q, channels, videos, videosKey, homeScroll, listeners, wide }
+let app = null; // { root, view, channel, channels, videos, videosKey, stale, homeScroll, listeners, wide }
 
 export default {
   mount(root, ctx) {
@@ -27,10 +33,10 @@ export default {
       root,
       view: null,
       channel: readStoredChannel(),
-      q: '',
       channels: null,
       videos: null,
       videosKey: null,
+      stale: false,
       homeScroll: 0,
       listeners: [],
       wide: window.matchMedia(WIDE_QUERY),
@@ -67,24 +73,24 @@ function scroller() {
 
 function showRoute(sub) {
   const s = String(sub == null ? '' : sub);
-  const m = /^watch\/([0-9a-f]{16})$/.exec(s);
-  if (m) showWatch(m[1]);
+  const yt = /^v\/([A-Za-z0-9_-]{11})$/.exec(s);
+  const file = /^watch\/([0-9a-f]{16})$/.exec(s);
+  if (yt) showYouTube(yt[1]);
+  else if (file) showFile(file[1]);
   else if (!s) showHome();
   else nav.replace('#/jaketube');
 }
 
 function onRefresh() {
-  if (!app || !app.view || app.view.kind !== 'home') return;
-  loadChannels();
-  loadList({ quiet: true });
+  if (app && app.view && app.view.kind === 'home') loadFeed({ quiet: true });
 }
 
 function onVisibility() {
   if (!app || !app.view) return;
   if (document.hidden) {
-    if (app.view.kind === 'watch') saveProgress(app.view);
+    if (app.view.kind === 'file') saveProgress(app.view);
   } else if (app.view.kind === 'home') {
-    loadList({ quiet: true });
+    loadFeed({ quiet: true });
   }
 }
 
@@ -92,11 +98,10 @@ function teardownView() {
   const v = app.view;
   if (!v) return;
   app.view = null;
-  if (v.kind === 'home') {
-    clearTimeout(v.recheck);
-    if (v.onInput) v.onInput.cancel();
-    releaseReload(HOLD_TYPING);
-  } else if (v.kind === 'watch') {
+  if (v.kind === 'youtube') {
+    v.frame.remove(); // stops the sound right away
+    releaseReload(HOLD_WATCHING);
+  } else if (v.kind === 'file') {
     stopSaving(v);
     saveProgress(v);
     releaseReload(HOLD_PLAYING);
@@ -111,99 +116,86 @@ function teardownView() {
 
 function syncFullBleed() {
   if (!app) return;
-  app.root.classList.toggle('full-bleed', Boolean(app.view && app.view.kind === 'watch' && app.wide.matches));
+  const watching = Boolean(app.view && (app.view.kind === 'youtube' || app.view.kind === 'file'));
+  app.root.classList.toggle('full-bleed', watching && app.wide.matches);
 }
 
-// ---------------------------------------------------------------- home
+// ---------------------------------------------------------------- home (the feed)
 
 function readStoredChannel() {
   const value = store.get(CHANNEL_KEY, '');
   return typeof value === 'string' ? value : '';
 }
 
-function listKey() {
-  return `${app.channel}|${app.q}`;
-}
-
 function showHome() {
   if (app.view && app.view.kind === 'home') {
-    loadList({ quiet: true });
+    loadFeed({ quiet: true });
     return;
   }
   teardownView();
   syncFullBleed();
 
   const chips = el('div', { class: 'chips tube-chips', role: 'group', 'aria-label': 'Channel' });
-  const search = el('input', {
-    class: 'input tube-search', type: 'search', placeholder: 'Search', 'aria-label': 'Search videos',
-    autocomplete: 'off', autocorrect: 'off', autocapitalize: 'none', spellcheck: 'false', enterkeyhint: 'search',
-  });
-  search.value = app.q;
+  const note = el('p', { class: 'tube-stale', text: "Couldn't reach YouTube, so this is the last feed it got." });
+  note.hidden = true;
   const list = el('div', { class: 'tube-list' });
   const empty = emptyState('No videos yet.');
   empty.hidden = true;
-  const note = el('p', { class: 'tube-note', text: ABOUT_LINE });
+  const refresh = navButton({ label: 'Refresh', icon: 'refresh', onClick: () => {
+    haptic('light');
+    loadFeed({ force: true });
+  } });
   app.root.replaceChildren(
-    navbar({ title: 'JakeTube' }),
-    el('div', { class: 'app-content tube-home' }, chips, search, list, empty, note),
+    navbar({ title: 'JakeTube', right: [refresh] }),
+    el('div', { class: 'app-content tube-home' }, chips, note, list, empty),
   );
 
-  const view = { kind: 'home', chips, search, list, empty, cards: new Map(), seq: 0, recheck: 0, rechecked: false, loaded: false, onInput: null };
+  const view = { kind: 'home', chips, note, list, empty, cards: new Map(), seq: 0, loaded: false };
   app.view = view;
 
-  view.onInput = debounce(() => {
-    if (!app || app.view !== view) return;
-    const q = search.value.trim();
-    if (q === app.q) return;
-    app.q = q;
-    view.rechecked = false;
-    loadList();
-  }, 250);
-  search.addEventListener('input', () => {
-    syncTypingHold(search);
-    view.onInput();
-  });
-  search.addEventListener('focus', () => syncTypingHold(search));
-  search.addEventListener('blur', () => releaseReload(HOLD_TYPING));
-  search.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      view.onInput.flush();
-      search.blur();
-    }
-  });
-
   renderChips();
-  if (app.videos && app.videosKey === listKey()) {
+  if (app.videos && app.videosKey === app.channel) {
     view.loaded = true;
     renderList();
   }
-  loadChannels();
-  loadList();
+  loadFeed();
   requestAnimationFrame(() => {
     if (app && app.view === view) scroller().scrollTop = app.homeScroll;
   });
 }
 
-// Never yank the keyboard away mid-search: hold the build-change reload while typing.
-function syncTypingHold(input) {
-  if (document.activeElement === input && input.value.trim()) holdReload(HOLD_TYPING);
-  else releaseReload(HOLD_TYPING);
-}
-
-async function loadChannels() {
+async function loadFeed({ quiet = false, force = false } = {}) {
+  const v = app.view;
+  if (!v || v.kind !== 'home') return;
+  const seq = ++v.seq;
+  const key = app.channel;
+  const params = new URLSearchParams();
+  if (key) params.set('channel', key);
+  if (force) params.set('refresh', '1');
+  const qs = params.toString();
   try {
-    const data = await api('/api/jaketube/channels');
-    if (!app) return;
-    app.channels = Array.isArray(data) ? data.filter((c) => c && typeof c.id === 'string') : [];
-    if (app.channel && !app.channels.some((c) => c.id === app.channel)) {
+    const data = await api(`/api/jaketube/feed${qs ? `?${qs}` : ''}`);
+    if (!app || app.view !== v || v.seq !== seq) return;
+    app.channels = data && Array.isArray(data.channels) ? data.channels.filter((c) => c && typeof c.id === 'string') : [];
+    app.videos = data && Array.isArray(data.videos) ? data.videos : [];
+    app.videosKey = key;
+    app.stale = Boolean(data && data.stale);
+    v.loaded = true;
+    renderChips();
+    renderList();
+  } catch (err) {
+    if (!app || app.view !== v || v.seq !== seq) return;
+    if (err && err.status === 400 && app.channel) {
       // the remembered chip is gone from the config: back to All
       app.channel = '';
       store.del(CHANNEL_KEY);
-      if (app.view && app.view.kind === 'home') loadList();
+      renderChips();
+      loadFeed({ quiet, force });
+      return;
     }
-    renderChips();
-  } catch {
-    /* the chips stay as they are; the banner reports an outage */
+    if (!quiet) {
+      toast(err && err.status ? `Couldn't load the feed: ${err.message}` : "Couldn't load the feed — the PC is unreachable", { kind: 'error' });
+    }
   }
 }
 
@@ -224,49 +216,10 @@ function selectChannel(id) {
   if (id) store.set(CHANNEL_KEY, id);
   else store.del(CHANNEL_KEY);
   renderChips();
-  if (app.view && app.view.kind === 'home') app.view.rechecked = false;
-  loadList();
+  loadFeed();
 }
 
-async function loadList({ quiet = false } = {}) {
-  const v = app.view;
-  if (!v || v.kind !== 'home') return;
-  const seq = ++v.seq;
-  const key = listKey();
-  const params = new URLSearchParams();
-  if (app.channel) params.set('channel', app.channel);
-  if (app.q) params.set('q', app.q);
-  const qs = params.toString();
-  try {
-    const data = await api(`/api/jaketube/videos${qs ? `?${qs}` : ''}`);
-    if (!app || app.view !== v || v.seq !== seq) return;
-    app.videos = data && Array.isArray(data.videos) ? data.videos : [];
-    app.videosKey = key;
-    v.loaded = true;
-    renderList();
-    // Thumbs are made in the background after a list call: look once more a little later.
-    if (!v.rechecked && app.videos.some((x) => x.thumb === null)) {
-      v.rechecked = true;
-      clearTimeout(v.recheck);
-      v.recheck = setTimeout(() => loadList({ quiet: true }), THUMB_RECHECK_MS);
-    }
-  } catch (err) {
-    if (!app || app.view !== v || v.seq !== seq) return;
-    if (err && err.status === 400 && app.channel) {
-      app.channel = '';
-      store.del(CHANNEL_KEY);
-      renderChips();
-      loadList({ quiet });
-      return;
-    }
-    if (!quiet) {
-      toast(err && err.status ? `Couldn't load videos: ${err.message}` : "Couldn't load videos — the PC is unreachable", { kind: 'error' });
-    }
-  }
-}
-
-// Cards are kept by id across refreshes (the 4 s thumb re-fetch, a return from the watch
-// page) so images do not flicker; only their thumb/duration/progress are patched.
+// Cards are kept by id across refreshes so images do not flicker; only their text is patched.
 function renderList() {
   const v = app.view;
   if (!v || v.kind !== 'home') return;
@@ -279,94 +232,164 @@ function renderList() {
       card = makeCard(video);
       v.cards.set(video.id, card);
     }
-    patchCard(card, video);
+    card.parts.title.textContent = video.title;
+    card.parts.sub.textContent = subtitleOf(video);
     nodes.push(card);
     keep.add(video.id);
   }
   for (const id of [...v.cards.keys()]) if (!keep.has(id)) v.cards.delete(id);
   v.list.replaceChildren(...nodes);
-  v.empty.textContent = app.q ? 'No matches.' : 'No videos yet.';
+  v.note.hidden = !app.stale;
   v.empty.hidden = !(v.loaded && videos.length === 0);
 }
 
 function makeCard(video) {
-  const thumb = el('div', { class: 'tube-thumb' });
   const title = el('div', { class: 'tube-card-title' });
   const sub = el('div', { class: 'tube-card-sub' });
-  const card = el('button', { class: 'tube-card', type: 'button', dataset: { id: video.id } },
-    thumb, el('div', { class: 'tube-card-text' }, title, sub));
+  const card = el('button', { class: 'tube-card', type: 'button', dataset: { id: video.id }, 'aria-label': video.title },
+    feedThumb(video), el('div', { class: 'tube-card-text' }, title, sub));
   card.addEventListener('click', () => {
     haptic('light');
-    nav.go(`#/jaketube/watch/${video.id}`);
+    nav.go(`#/jaketube/v/${video.id}`);
   });
-  card.parts = { thumb, title, sub };
+  card.parts = { title, sub };
   return card;
 }
 
-function patchCard(card, video) {
-  const { thumb, title, sub } = card.parts;
-  const t = titleOf(video);
-  title.textContent = t;
-  sub.textContent = subtitleOf(video);
-  card.setAttribute('aria-label', video.duration != null ? `${t}, ${fmt.duration(video.duration)}` : t);
-  renderThumb(thumb, video);
+// A 16:9 box with YouTube's thumbnail (its 4:3 letterbox is cropped away) and a "Short" pill.
+function feedThumb(video) {
+  const img = el('img', { src: video.thumb, alt: '', loading: 'lazy', decoding: 'async', draggable: 'false', referrerpolicy: 'no-referrer' });
+  img.addEventListener('error', () => img.remove(), { once: true });
+  return el('div', { class: 'tube-thumb' }, img, video.short ? el('span', { class: 'tube-dur', text: 'Short' }) : null);
 }
 
-// A 16:9 box: the JPEG (or a muted glyph while the thumb is still being made), the
-// duration pill, and the red progress bar when the video was partly watched.
-function renderThumb(box, video) {
-  const src = video.thumb || '';
-  if (box.dataset.src !== src) {
-    box.dataset.src = src;
-    box.classList.toggle('portrait', isPortrait(video));
-    const media = src
-      ? el('img', { src, alt: '', loading: 'lazy', decoding: 'async', draggable: 'false' })
-      : placeholder();
-    if (src) media.addEventListener('error', () => media.replaceWith(placeholder()), { once: true });
-    const old = box.querySelector('img, .tube-thumb-empty');
-    if (old) old.replaceWith(media);
-    else box.prepend(media);
-  }
-  const dur = video.duration != null ? fmt.duration(video.duration) : '';
-  let pill = box.querySelector('.tube-dur');
-  if (dur) {
-    if (!pill) {
-      pill = el('span', { class: 'tube-dur' });
-      box.append(pill);
+function subtitleOf(video) {
+  const parts = [video.channel_name || ''];
+  if (Number.isFinite(video.views)) parts.push(`${compact.format(video.views)} views`);
+  parts.push(ago(video.published));
+  return parts.filter(Boolean).join(' · ');
+}
+
+// "5 minutes ago" … "3 weeks ago", then the date.
+function ago(iso) {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  const unit = (n, word) => `${n} ${word}${n === 1 ? '' : 's'} ago`;
+  if (s < 3600) return unit(Math.max(1, Math.floor(s / 60)), 'minute');
+  if (s < 86400) return unit(Math.floor(s / 3600), 'hour');
+  if (s < 7 * 86400) return unit(Math.floor(s / 86400), 'day');
+  if (s < 30 * 86400) return unit(Math.floor(s / (7 * 86400)), 'week');
+  return fmt.date(t);
+}
+
+// ---------------------------------------------------------------- watch (YouTube)
+
+async function showYouTube(id) {
+  const current = app.view;
+  if (current && current.kind === 'youtube' && current.id === id) return;
+  if (current && current.kind === 'home') app.homeScroll = scroller().scrollTop;
+  teardownView();
+  scroller().scrollTop = 0;
+
+  const bar = navbar({ title: 'JakeTube', back: true });
+  // The page's own Referrer-Policy is same-origin; the embed refuses to play without a referrer.
+  const frame = el('iframe', {
+    class: 'tube-frame', src: `${EMBED_URL}${id}?autoplay=1&playsinline=1&rel=0`, title: 'YouTube video player',
+    allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen', allowfullscreen: true,
+    referrerpolicy: 'strict-origin-when-cross-origin',
+  });
+  const player = el('div', { class: 'tube-player' }, frame);
+  const title = el('h2', { class: 'tube-title' });
+  const meta = el('p', { class: 'tube-meta' });
+  const open = el('a', { class: 'tube-resume', href: `https://www.youtube.com/watch?v=${id}`, target: '_blank', rel: 'noopener noreferrer', text: 'Open in YouTube' });
+  const desc = el('p', { class: 'tube-desc' });
+  desc.hidden = true;
+  const more = el('button', { class: 'tube-more', type: 'button', text: 'Show more' });
+  more.hidden = true;
+  const upTitle = section('More from this channel');
+  upTitle.hidden = true;
+  const upList = el('div', { class: 'tube-upnext' });
+  app.root.replaceChildren(
+    bar,
+    el('div', { class: 'app-content tube-watch' },
+      player,
+      el('div', { class: 'tube-info' }, title, meta, open, desc, more),
+      el('div', { class: 'tube-aside' }, upTitle, upList)),
+  );
+
+  const view = { kind: 'youtube', id, bar, frame, player, title, meta, open, desc, more, upTitle, upList };
+  app.view = view;
+  holdReload(HOLD_WATCHING);
+  syncFullBleed();
+  more.addEventListener('click', () => {
+    const clamped = desc.classList.toggle('clamped');
+    more.textContent = clamped ? 'Show more' : 'Show less';
+  });
+
+  let item = Array.isArray(app.videos) ? app.videos.find((v) => v.id === id) || null : null;
+  if (item) fillYouTube(view, item);
+  try {
+    const data = await api(`/api/jaketube/feed/${id}`);
+    if (!app || app.view !== view) return;
+    if (data && data.video) {
+      item = data.video;
+      fillYouTube(view, item);
     }
-    pill.textContent = dur;
-  } else if (pill) {
-    pill.remove();
+  } catch {
+    if (!app || app.view !== view) return;
+    if (!item) title.textContent = 'YouTube video'; // not in the feed (any more): the player still works
   }
-  const frac = progressFraction(video);
-  let bar = box.querySelector('.tube-progress');
-  if (frac > 0) {
-    if (!bar) {
-      bar = el('div', { class: 'tube-progress' }, el('div', { class: 'tube-progress-fill' }));
-      box.append(bar);
+  if (item) loadMore(view, item);
+}
+
+function fillYouTube(view, item) {
+  view.bar.setTitle(item.channel_name || 'JakeTube');
+  view.title.textContent = item.title;
+  view.meta.textContent = [item.channel_name, Number.isFinite(item.views) ? `${compact.format(item.views)} views` : '', fmt.date(item.published, { year: true })]
+    .filter(Boolean).join(' · ');
+  view.player.classList.toggle('portrait', Boolean(item.short));
+  if (item.url) view.open.href = item.url;
+  const text = String(item.description || '').trim();
+  view.desc.textContent = text;
+  view.desc.hidden = !text;
+  const long = text.length > DESC_CLAMP_CHARS || text.split('\n').length > DESC_CLAMP_LINES;
+  view.desc.classList.toggle('clamped', long);
+  view.more.hidden = !long;
+  view.more.textContent = 'Show more';
+}
+
+async function loadMore(view, item) {
+  let videos = Array.isArray(app.videos) && (app.videosKey === '' || app.videosKey === item.channel) ? app.videos : null;
+  if (!videos) {
+    try {
+      const data = await api(`/api/jaketube/feed?channel=${encodeURIComponent(item.channel)}`);
+      if (!app || app.view !== view) return;
+      videos = data && Array.isArray(data.videos) ? data.videos : [];
+    } catch {
+      return;
     }
-    bar.firstChild.style.width = `${Math.round(frac * 1000) / 10}%`;
-  } else if (bar) {
-    bar.remove();
   }
+  const next = videos.filter((v) => v.channel === item.channel && v.id !== item.id).slice(0, MORE_MAX);
+  if (!next.length) return;
+  view.upTitle.hidden = false;
+  view.upList.replaceChildren(...next.map(moreRow));
 }
 
-function placeholder() {
-  return el('div', { class: 'tube-thumb-empty' }, icon('video', { size: 28, strokeWidth: 1.6 }));
+function moreRow(video) {
+  const row = el('button', { class: 'tube-up', type: 'button', 'aria-label': video.title },
+    feedThumb(video),
+    el('div', { class: 'tube-up-text' },
+      el('div', { class: 'tube-up-title', text: video.title }),
+      el('div', { class: 'tube-up-sub', text: subtitleOf(video) })));
+  row.addEventListener('click', () => {
+    haptic('light');
+    nav.go(`#/jaketube/v/${video.id}`);
+  });
+  return row;
 }
 
-function isPortrait(video) {
-  return Boolean(video.width && video.height && video.height > video.width);
-}
-
-function progressFraction(video) {
-  const p = video.progress;
-  const d = (p && p.duration) || video.duration;
-  if (!p || !d || !(p.seconds >= 1)) return 0;
-  return Math.min(1, Math.max(0, p.seconds / d));
-}
-
-// ---------------------------------------------------------------- names
+// ---------------------------------------------------------------- watch (a file on the PC)
 
 // "2026-10-15.mp4" -> "Oct 15, 2026", "2026-10-15_19-07-48.mp4" -> "Oct 15, 2026 · 7:07 PM",
 // anything else -> the stem.
@@ -393,10 +416,6 @@ function titleOf(video) {
   return stem || video.title || 'Video';
 }
 
-function subtitleOf(video) {
-  return `${video.channel_name || video.channel || ''} · ${fmt.bytes(video.size)}`;
-}
-
 function metaOf(video) {
   const parts = [video.channel_name || video.channel || ''];
   if (!parseDateName(video.name)) parts.push(fmt.date(video.mtime, { year: true }));
@@ -405,11 +424,9 @@ function metaOf(video) {
   return parts.filter(Boolean).join(' · ');
 }
 
-// ---------------------------------------------------------------- watch
-
-async function showWatch(id) {
+async function showFile(id) {
   const current = app.view;
-  if (current && current.kind === 'watch' && current.id === id) return;
+  if (current && current.kind === 'file' && current.id === id) return;
   if (current && current.kind === 'home') app.homeScroll = scroller().scrollTop;
   teardownView();
   scroller().scrollTop = 0;
@@ -424,19 +441,15 @@ async function showWatch(id) {
   resume.hidden = true;
   const notice = el('p', { class: 'tube-notice' });
   notice.hidden = true;
-  const upTitle = section('Up next');
-  upTitle.hidden = true;
-  const upList = el('div', { class: 'tube-upnext' });
   const player = el('div', { class: 'tube-player' }, video);
   app.root.replaceChildren(
     bar,
     el('div', { class: 'app-content tube-watch' },
       player,
-      el('div', { class: 'tube-info' }, title, meta, resume, notice),
-      el('div', { class: 'tube-aside' }, upTitle, upList)),
+      el('div', { class: 'tube-info' }, title, meta, resume, notice)),
   );
 
-  const view = { kind: 'watch', id, bar, video, player, title, meta, resume, notice, upTitle, upList, item: null, gone: false, pendingSeek: null, saveTimer: 0, lastSaved: null, off: [] };
+  const view = { kind: 'file', id, bar, video, player, title, meta, resume, notice, item: null, gone: false, pendingSeek: null, saveTimer: 0, lastSaved: null, off: [] };
   app.view = view;
   syncFullBleed();
   wireVideo(view);
@@ -459,9 +472,8 @@ async function showWatch(id) {
     return;
   }
   if (!view.item) return;
-  fillWatch(view);                              // poster + "Resume from" (the seek waits for loadedmetadata)
+  fillFile(view);                               // poster + "Resume from" (the seek waits for loadedmetadata)
   video.src = `/api/jaketube/stream/${id}`;     // autoplay starts here
-  loadUpNext(view);
 }
 
 function wireVideo(view) {
@@ -497,7 +509,7 @@ function wireVideo(view) {
   });
 }
 
-function fillWatch(view) {
+function fillFile(view) {
   const item = view.item;
   const { video } = view;
   const t = titleOf(item);
@@ -541,8 +553,7 @@ function stopSaving(view) {
   view.saveTimer = 0;
 }
 
-// PUT the position (deduped: the same tenth of a second is not sent twice). The cached
-// list/item get the new progress too, so the card's bar is right as soon as you go back.
+// PUT the position (deduped: the same tenth of a second is not sent twice).
 function saveProgress(view, { ended = false } = {}) {
   if (!app || view.gone) return;
   const { video } = view;
@@ -555,42 +566,5 @@ function saveProgress(view, { ended = false } = {}) {
   view.lastSaved = rounded;
   const progress = { seconds: rounded, duration: Math.round(duration * 1000) / 1000, updated_at: new Date().toISOString() };
   if (view.item) view.item.progress = progress;
-  if (Array.isArray(app.videos)) {
-    for (const v of app.videos) if (v.id === view.id) v.progress = progress;
-  }
   api(`/api/jaketube/progress/${view.id}`, { method: 'PUT', body: { seconds: rounded, duration: progress.duration } }).catch(() => {});
-}
-
-async function loadUpNext(view) {
-  const item = view.item;
-  if (!item || !item.channel) return;
-  let videos = app.videosKey === `${item.channel}|` && Array.isArray(app.videos) ? app.videos : null;
-  if (!videos) {
-    try {
-      const data = await api(`/api/jaketube/videos?channel=${encodeURIComponent(item.channel)}`);
-      if (!app || app.view !== view) return;
-      videos = data && Array.isArray(data.videos) ? data.videos : [];
-    } catch {
-      return;
-    }
-  }
-  const next = videos.filter((v) => v.id !== view.id).slice(0, UP_NEXT_MAX);
-  if (!next.length) return;
-  view.upTitle.hidden = false;
-  view.upList.replaceChildren(...next.map(upNextRow));
-}
-
-function upNextRow(video) {
-  const thumb = el('div', { class: 'tube-thumb' });
-  renderThumb(thumb, video);
-  const row = el('button', { class: 'tube-up', type: 'button', 'aria-label': titleOf(video) },
-    thumb,
-    el('div', { class: 'tube-up-text' },
-      el('div', { class: 'tube-up-title', text: titleOf(video) }),
-      el('div', { class: 'tube-up-sub', text: subtitleOf(video) })));
-  row.addEventListener('click', () => {
-    haptic('light');
-    nav.go(`#/jaketube/watch/${video.id}`);
-  });
-  return row;
 }
