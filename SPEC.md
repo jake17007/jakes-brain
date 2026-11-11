@@ -75,6 +75,7 @@ playback and photo/camera pickers enabled.
 | `jaketube` | JakeTube | #e62117 | YouTube feed of jvscholz, sentdex and Tina Huang (newest uploads, played in the app) |
 | `jakegpt` | JakeGPT | #10a37f | private ChatGPT on the PC's Ollama (streaming), conversations saved |
 | `habits` | Habits | #ff9f0a | daily habits, streaks, 7-day strip |
+| `period` | Period | #ff375f | cycle tracker: flow + symptoms per day, predicted next period, fertile window |
 | `files` | Files | #0a84ff | read-only browser of PC folders with image/video/text preview |
 | `weather` | Weather | #32ade6 | Open-Meteo forecast for a city set in Weather/Settings |
 | `server` | Server | #34c759 | the v1 Home screen: PC stats + one row per service |
