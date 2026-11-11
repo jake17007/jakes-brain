@@ -1,0 +1,339 @@
+/* Period app: summary card, month calendar, averages, past periods, and the day sheet. */
+
+.app-period {
+  --pink: #ff375f;
+  --pink-soft: rgba(255, 55, 95, 0.14);
+  --teal: #30b0c7;
+  --teal-soft: rgba(48, 176, 199, 0.16);
+}
+
+@media (prefers-color-scheme: dark) {
+  .app-period {
+    --pink: #ff375f;
+    --pink-soft: rgba(255, 55, 95, 0.22);
+    --teal: #40c8e0;
+    --teal-soft: rgba(64, 200, 224, 0.2);
+  }
+}
+
+.app-period .app-content > .card + .card { margin-top: 12px; }
+
+/* ------------------------------------------------------------------ summary */
+
+.app-period .hero {
+  padding: 18px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.app-period .hero p { margin: 0; }
+
+.app-period .hero-eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--pink);
+}
+
+.app-period .hero-eyebrow.late { color: var(--amber); }
+
+.app-period .hero-big {
+  margin-top: 4px !important;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-period .hero-big.small { font-size: 26px; }
+
+.app-period .hero-sub {
+  margin-top: 6px !important;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.app-period .phase {
+  margin-top: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--fill);
+  color: var(--muted);
+}
+
+.app-period .phase-fertile, .app-period .phase-ovulation { background: var(--teal-soft); color: var(--teal); }
+
+.app-period .hero-action {
+  margin-top: 14px;
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: 22px;
+  background: var(--pink);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.app-period .hero-action:active { opacity: 0.7; }
+
+/* ------------------------------------------------------------------ calendar */
+
+.app-period .cal { padding: 4px 8px 10px; }
+
+.app-period .cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-period .cal-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.app-period .cal-nav {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pink);
+}
+
+.app-period .cal-nav:active { opacity: 0.5; }
+
+.app-period .grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.app-period .weekdays .wd {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 2px 0 4px;
+}
+
+.app-period .cell {
+  position: relative;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-period .cell .num {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 16px;
+  border: 2px solid transparent;
+}
+
+.app-period .cell.future { color: var(--muted); cursor: default; }
+.app-period .cell.today .num { font-weight: 700; color: var(--pink); }
+
+.app-period .cell.period .num { background: var(--pink); color: #fff; }
+.app-period .cell.period.flow-light .num { background: var(--pink-soft); color: var(--pink); border-color: var(--pink); }
+.app-period .cell.period.flow-heavy .num { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--pink); }
+.app-period .cell.spotting .num { border: 2px dotted var(--pink); }
+.app-period .cell.predicted .num { border: 2px dashed var(--pink); color: var(--pink); }
+.app-period .cell.fertile .num { background: var(--teal-soft); }
+.app-period .cell.ovulation .num { border-color: var(--teal); background: var(--teal-soft); color: var(--teal); font-weight: 600; }
+
+.app-period .cell .extra {
+  position: absolute;
+  bottom: 1px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.app-period .cell:not(.future):active .num { opacity: 0.6; }
+
+.app-period .legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 14px;
+  padding: 8px 4px 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.app-period .lg { display: inline-flex; align-items: center; gap: 5px; }
+.app-period .lg i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-sizing: border-box; }
+.app-period .lg-period i { background: var(--pink); }
+.app-period .lg-predicted i { border: 1.5px dashed var(--pink); }
+.app-period .lg-fertile i { background: var(--teal-soft); }
+.app-period .lg-ovulation i { border: 1.5px solid var(--teal); background: var(--teal-soft); }
+
+/* ------------------------------------------------------------------ history */
+
+.app-period .history .row { padding: 0; }
+
+.app-period .hist {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  text-align: left;
+}
+
+.app-period .hist .bar { flex: 0 0 4px; height: 22px; border-radius: 2px; background: var(--pink); }
+.app-period .hist .range { flex: 1 1 auto; min-width: 0; font-weight: 500; }
+.app-period .hist .meta { flex: 0 0 auto; color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
+.app-period .hist:active { opacity: 0.6; }
+
+.app-period .footnote {
+  margin: 18px 4px 8px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ day sheet */
+
+.app-period .sheet { position: fixed; inset: 0; z-index: 30; }
+
+.app-period .sheet .backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  animation: period-fade-in 180ms ease both;
+}
+
+.app-period .sheet .panel {
+  position: absolute;
+  left: calc(8px + var(--sal));
+  right: calc(8px + var(--sar));
+  bottom: calc(var(--sab) + 8px);
+  max-width: 560px;
+  max-height: calc(100% - var(--sat) - var(--sab) - 24px);
+  overflow-y: auto;
+  margin: 0 auto;
+  animation: period-slide-up 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.app-period .sheet.out .backdrop { animation: period-fade-out 160ms ease both; }
+.app-period .sheet.out .panel { animation: period-slide-down 160ms ease-in both; }
+.app-period .sheet.out { pointer-events: none; }
+
+.app-period .sheet .group {
+  background: var(--sheet);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.app-period .sheet .group:last-child { margin-bottom: 0; }
+
+.app-period .sheet .form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 16px;
+}
+
+.app-period .sheet .title {
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.app-period .sheet .label {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.app-period .segmented {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--track);
+}
+
+.app-period .seg {
+  min-height: 40px;
+  padding: 0 2px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.app-period .seg[aria-checked="true"] { background: var(--pink); color: #fff; font-weight: 600; }
+
+.app-period .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.app-period .chip {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 18px;
+  background: var(--fill);
+  color: var(--text);
+  font-size: 15px;
+}
+
+.app-period .chip[aria-pressed="true"] { background: var(--pink-soft); color: var(--pink); font-weight: 600; box-shadow: inset 0 0 0 1.5px var(--pink); }
+
+.app-period .sheet .note { background: var(--card); font-size: 16px; resize: none; font-family: inherit; }
+
+.app-period .sheet .primary {
+  min-height: 48px;
+  margin-top: 4px;
+  border-radius: 10px;
+  background: var(--pink);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.app-period .sheet .primary:disabled { opacity: 0.45; }
+.app-period .sheet .primary:active:not(:disabled) { opacity: 0.7; }
+
+.app-period .sheet .cancel {
+  display: block;
+  width: 100%;
+  min-height: 56px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent);
+  text-align: center;
+}
+
+.app-period .sheet .cancel.destructive { color: var(--red); font-weight: 400; }
+.app-period .sheet .cancel:active { background: var(--track); }
+
+@keyframes period-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes period-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes period-slide-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes period-slide-down { from { transform: none; opacity: 1; } to { transform: translateY(30px); opacity: 0; } }
+
+.app-period .cal, .app-period .segmented, .app-period .chips { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-period .sheet .backdrop, .app-period .sheet .panel { animation-duration: 1ms; }
+}
+
+@media (hover: hover) {
+  .app-period .cell:not(.future):hover .num { background-color: var(--fill); }
+  .app-period .cell.period:hover .num { background-color: var(--pink); }
+}
