@@ -94,7 +94,7 @@ struct WebShell: UIViewRepresentable {
         let info = Bundle.main.infoDictionary ?? [:]
         let short = info["CFBundleShortVersionString"] as? String ?? "0"
         let build = info["CFBundleVersion"] as? String ?? "0"
-        let payload: [String: Any] = ["native": true, "canRecord": true, "canNotify": true, "canTimer": true, "version": "\(short) (\(build))"]
+        let payload: [String: Any] = ["native": true, "canRecord": true, "canNotify": true, "canTimer": true, "canDeviceKey": true, "version": "\(short) (\(build))"]
         let json = (try? JSONSerialization.data(withJSONObject: payload))
             .flatMap { String(data: $0, encoding: .utf8) } ?? #"{"native":true}"#
         return "window.JakesData = \(json);"
@@ -129,6 +129,7 @@ struct WebShell: UIViewRepresentable {
         }
 
         private let voiceRecorder = VoiceRecorder()
+        private let deviceKeys = DeviceKeyStore()
 
 
         // MARK: Messages from the page
@@ -144,6 +145,10 @@ struct WebShell: UIViewRepresentable {
             else { return }
             if body["type"] as? String == "reminders" {
                 ReminderScheduler.shared.sync()
+                return
+            }
+            if body["type"] as? String == "devicekey" {
+                deviceKeys.handle(body, webView: message.webView)
                 return
             }
             if body["type"] as? String == "voice" {

@@ -22,6 +22,8 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>Jake's Brain uses the camera for photos and videos you post.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Jake's Brain uses Face ID to unlock Finances.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Jake's Brain uses the microphone when you record a video to post.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

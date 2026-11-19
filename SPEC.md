@@ -543,6 +543,11 @@ database, untouched). The native recorder (`ios/JakesData/VoiceRecorder.swift`) 
   Spending = settled outflows on cash and card accounts over the last 90 days of data, minus transfers
   between Jake's own accounts (an outflow matched by an equal inflow on another connected account within
   5 days, e.g. card payments), scaled to a month. Income is ignored.
+- Lock: ⋯ > PIN / Face ID Lock sets a 4–8 digit PIN; then every Finances route answers 423 until the tab
+  holds an unlock token (5 min, extended on use, in memory). The iPhone app (1.7+) can unlock with Face ID /
+  the passcode: a device key kept in the Keychain (`.userPresence`, `DeviceKeyStore.swift`, bridge message
+  `devicekey`). Claude's connector is not locked (header X-JakesData-Connector, never forwarded by the public
+  gateway); lock/unlock/connect routes are in its DENY list. Each account row shows when it was last updated.
 - Routes are listed in the header of `server/apps/finances.js`.
 
 ### connector  (added 2026-11-02 — "Claude should update my app like it updates Notion")

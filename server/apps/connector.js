@@ -50,7 +50,7 @@ const APP_ORIGIN = `http://127.0.0.1:${MAIN_PORT}`;
 const WRITE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
 // Stays out of the connector entirely: who may sign in is decided on the private app only, and
 // the bank connection (SimpleFIN credentials) is pasted in the Finances app, never through Claude.
-const DENY = /^\/api\/(connector|finances\/connect)(\/|$)/;
+const DENY = /^\/api\/(connector|finances\/(connect|unlock|lock))(\/|$)/;
 // The Zora bot trades real money, so nothing that writes under here ever goes through Claude.
 const READ_ONLY = /^\/api\/bots(\/|$)/;
 // Raw file bodies, which a JSON tool call can't carry.
@@ -332,7 +332,9 @@ async function callApp(method, rawPath, query, body) {
   }
   const res = await fetch(url, {
     method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+    // Marks Claude's calls (the public gateway never forwards this header), so the Finances PIN
+    // lock, which guards devices, does not lock Claude out.
+    headers: { 'X-JakesData-Connector': '1', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(APP_TIMEOUT_MS),
   });

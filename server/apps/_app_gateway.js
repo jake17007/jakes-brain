@@ -5,7 +5,7 @@ import { HttpError, readJsonBody, readRawBody, sendJson } from '../http.js';
 const SAFE_METHODS = new Set(['GET', 'HEAD']);
 const APP_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 const REQUEST_HEADERS = new Set(['accept', 'accept-language', 'content-type', 'content-length', 'range',
-  'if-range', 'if-none-match', 'if-modified-since', 'x-filename']);
+  'if-range', 'if-none-match', 'if-modified-since', 'x-filename', 'x-finances-unlock']);
 const RESPONSE_HEADERS = new Set(['content-type', 'content-length', 'content-range', 'accept-ranges',
   'content-disposition', 'etag', 'last-modified', 'retry-after', 'allow', 'content-security-policy',
   'content-security-policy-report-only', 'permissions-policy', 'cross-origin-resource-policy',

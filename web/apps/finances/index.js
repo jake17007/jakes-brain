@@ -29,6 +29,182 @@ let points = null;        // history for the chart on screen
 let txs = null;           // { transactions, more } for the list on screen
 let listeners = [];
 let seq = 0;
+let locked = false;
+let autoFaceTried = false;
+
+// ---------------------------------------------------------------- lock (PIN / Face ID)
+// The PC answers 423 until this tab holds an unlock token (5 minutes, extended on use). In the
+// iPhone app, a key kept in the Keychain behind Face ID / the passcode unlocks without the PIN.
+const TOKEN_KEY = 'finances.unlock';
+const DEVICE_KEY = 'finances.deviceId';
+const canDeviceKey = () => Boolean(window.JakesData && window.JakesData.canDeviceKey);
+const session = {
+  get: (k) => { try { return sessionStorage.getItem(k) || ''; } catch { return ''; } },
+  set: (k, v) => { try { if (v) sessionStorage.setItem(k, v); else sessionStorage.removeItem(k); } catch { /* private mode */ } },
+};
+const deviceId = () => store.get(DEVICE_KEY, '') || '';
+
+async function fapi(path, opts = {}) {
+  try {
+    return await api(path, { ...opts, headers: { ...(opts.headers || {}), 'X-Finances-Unlock': session.get(TOKEN_KEY) } });
+  } catch (err) {
+    if (err && err.status === 423) showLock();
+    throw err;
+  }
+}
+
+function nativeKey(message) {
+  return new Promise((resolve) => {
+    const request = Math.random().toString(36).slice(2);
+    let timer = 0;
+    const done = (detail) => { window.removeEventListener('jakesdata:devicekey', onEvent); clearTimeout(timer); resolve(detail); };
+    const onEvent = (e) => { if (e.detail && e.detail.request === request) done(e.detail); };
+    window.addEventListener('jakesdata:devicekey', onEvent);
+    timer = setTimeout(() => done({ ok: false, error: 'failed' }), 120_000);
+    try { window.webkit.messageHandlers.native.postMessage({ type: 'devicekey', request, ...message }); }
+    catch { done({ ok: false, error: 'failed' }); }
+  });
+}
+
+function showLock() {
+  session.set(TOKEN_KEY, '');
+  if (locked) return;
+  locked = true;
+  render();
+  if (!autoFaceTried && deviceId() && canDeviceKey()) {
+    autoFaceTried = true;
+    unlockWithFace();
+  }
+}
+
+async function unlocked(token, { offerFace = false } = {}) {
+  session.set(TOKEN_KEY, token);
+  locked = false;
+  haptic('success');
+  render();
+  refresh();
+  if (offerFace && canDeviceKey() && !deviceId()) {
+    const ok = await confirmSheet({ title: 'Use Face ID next time?', message: 'Unlock Finances with Face ID or your iPhone passcode instead of the PIN.', confirmLabel: 'Use Face ID' });
+    if (ok) await enableFace();
+  }
+}
+
+async function enableFace() {
+  try {
+    const { device_id, device_key } = await fapi('/api/finances/lock/device', { method: 'POST' });
+    const saved = await nativeKey({ action: 'store', id: device_id, key: device_key });
+    if (!saved.ok) return toast(saved.error === 'nopasscode' ? 'Set a passcode on this iPhone first' : "Couldn't save the Face ID key", { kind: 'error' });
+    store.set(DEVICE_KEY, device_id);
+    toast('Face ID unlock is on');
+  } catch (err) {
+    toast(err && err.status ? err.message : "Couldn't reach the PC", { kind: 'error' });
+  }
+}
+
+async function unlockWithFace() {
+  const id = deviceId();
+  const got = await nativeKey({ action: 'unlock', id });
+  if (!got.ok) {
+    if (got.error === 'missing') store.del(DEVICE_KEY);
+    if (got.error !== 'cancelled') toast('Face ID unlock is not available. Use the PIN.', { kind: 'error' });
+    return render();
+  }
+  try {
+    const { token } = await api('/api/finances/unlock', { method: 'POST', body: { device_id: id, device_key: got.key } });
+    unlocked(token);
+  } catch (err) {
+    if (err && err.status === 401) { store.del(DEVICE_KEY); nativeKey({ action: 'clear', id }); }
+    toast(err && err.status ? err.message : "Couldn't reach the PC", { kind: 'error' });
+    render();
+  }
+}
+
+function renderLock() {
+  const bar = navbar({ title: 'Finances', back: view.kind !== 'home' });
+  const pin = el('input', {
+    class: 'input fn-pin', type: 'password', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '8',
+    autocomplete: 'off', placeholder: 'PIN', 'aria-label': 'Finances PIN',
+  });
+  const go = el('button', { type: 'submit', class: 'button fn-connect', text: 'Unlock' });
+  const form = el('form', { class: 'fn-connect-form', autocomplete: 'off' }, pin, go);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!pin.value) return;
+    go.disabled = true;
+    try {
+      const { token } = await api('/api/finances/unlock', { method: 'POST', body: { pin: pin.value } });
+      unlocked(token, { offerFace: true });
+    } catch (err) {
+      haptic('error');
+      toast(err && err.status ? err.message : "Couldn't reach the PC", { kind: 'error' });
+      pin.value = '';
+      go.disabled = false;
+      pin.focus();
+    }
+  });
+  const face = deviceId() && canDeviceKey()
+    ? el('button', { type: 'button', class: 'button fn-face', text: 'Unlock with Face ID', 'on:click': () => unlockWithFace() }) : null;
+  root.replaceChildren(bar, el('div', { class: 'app-content' },
+    el('section', { class: 'card fn-setup fn-lock' },
+      el('h2', { text: 'Finances is locked' }),
+      el('p', { class: 'muted', text: face ? 'Use Face ID or your PIN.' : 'Enter your Finances PIN.' }),
+      face, form)));
+  if (!face) pin.focus();
+}
+
+async function pinSheet(title) {
+  const result = await formSheet({ title, fields: [
+    { key: 'pin', label: 'New PIN (4 to 8 digits)', type: 'password', required: true },
+    { key: 'again', label: 'Type it again', type: 'password', required: true },
+  ] });
+  if (!result || result === 'delete') return null;
+  if (!/^\d{4,8}$/.test(result.pin)) { toast('The PIN must be 4 to 8 digits', { kind: 'error' }); return null; }
+  if (result.pin !== result.again) { toast("The PINs don't match", { kind: 'error' }); return null; }
+  return result.pin;
+}
+
+async function lockMenu() {
+  let status;
+  try { status = await api('/api/finances/lock'); } catch { return toast("Couldn't reach the PC", { kind: 'error' }); }
+  if (!status.enabled) {
+    const pin = await pinSheet('Lock Finances with a PIN');
+    if (!pin) return;
+    try {
+      const { token } = await fapi('/api/finances/lock/pin', { method: 'POST', body: { pin } });
+      session.set(TOKEN_KEY, token);
+      toast('Finances now needs your PIN');
+      if (canDeviceKey()) {
+        const ok = await confirmSheet({ title: 'Also unlock with Face ID?', message: 'Use Face ID or your iPhone passcode instead of typing the PIN.', confirmLabel: 'Use Face ID' });
+        if (ok) await enableFace();
+      }
+    } catch (err) { toast(err && err.status ? err.message : "Couldn't reach the PC", { kind: 'error' }); }
+    return;
+  }
+  const actions = [{ label: 'Lock Now', value: 'now' }];
+  if (canDeviceKey() && !deviceId()) actions.push({ label: 'Unlock with Face ID', value: 'face' });
+  actions.push({ label: 'Change PIN', value: 'change' }, { label: 'Turn Off PIN Lock', value: 'off', destructive: true });
+  const choice = await actionSheet({ title: 'Finances lock', actions });
+  if (choice === 'now') {
+    try { await api('/api/finances/lock/now', { method: 'POST', headers: { 'X-Finances-Unlock': session.get(TOKEN_KEY) } }); } catch { /* the token expires anyway */ }
+    showLock();
+  }
+  if (choice === 'face') await enableFace();
+  if (choice === 'change') {
+    const pin = await pinSheet('Change PIN');
+    if (!pin) return;
+    try { const { token } = await fapi('/api/finances/lock/pin', { method: 'POST', body: { pin } }); session.set(TOKEN_KEY, token); toast('PIN changed'); }
+    catch (err) { if (err && err.status !== 423) toast(err.message || "Couldn't reach the PC", { kind: 'error' }); }
+  }
+  if (choice === 'off') {
+    const ok = await confirmSheet({ title: 'Turn off the PIN lock?', message: 'Finances will open without a PIN or Face ID.', confirmLabel: 'Turn Off', destructive: true });
+    if (!ok) return;
+    try {
+      await fapi('/api/finances/lock/pin', { method: 'DELETE' });
+      if (deviceId()) { nativeKey({ action: 'clear', id: deviceId() }); store.del(DEVICE_KEY); }
+      toast('PIN lock is off');
+    } catch (err) { if (err && err.status !== 423) toast(err.message || "Couldn't reach the PC", { kind: 'error' }); }
+  }
+}
 
 export default {
   mount(rootEl, ctx) {
@@ -44,6 +220,7 @@ export default {
     releaseReload(HOLD_KEY);
     root = null;
     data = null;
+    autoFaceTried = false;
   },
 };
 
@@ -76,18 +253,20 @@ async function refresh() {
   try {
     const account = want.kind === 'account' ? want.id : null;
     const [overview, history, list] = await Promise.all([
-      api('/api/finances'),
-      want.kind === 'transactions' ? null : api(`/api/finances/history?days=${range()}${account ? `&account=${encodeURIComponent(account)}` : ''}`),
-      want.kind === 'home' ? api('/api/finances/transactions?limit=8')
-        : api(`/api/finances/transactions?limit=50${account ? `&account=${encodeURIComponent(account)}` : ''}`),
+      fapi('/api/finances'),
+      want.kind === 'transactions' ? null : fapi(`/api/finances/history?days=${range()}${account ? `&account=${encodeURIComponent(account)}` : ''}`),
+      want.kind === 'home' ? fapi('/api/finances/transactions?limit=8')
+        : fapi(`/api/finances/transactions?limit=50${account ? `&account=${encodeURIComponent(account)}` : ''}`),
     ]);
     if (!root || token !== seq || view !== want) return;
     data = overview;
+    locked = false;
     points = history ? history.points : null;
     txs = list;
     if (!typing()) render();
   } catch (err) {
     if (!root || token !== seq || view !== want) return;
+    if (err && err.status === 423) return;
     if (err && err.status === 404 && want.kind === 'account') {
       toast('That account is gone');
       nav.replace('#/finances');
@@ -107,6 +286,7 @@ function typing() {
 
 function render() {
   if (!root) return;
+  if (locked) return renderLock();
   if (view.kind === 'account') return renderAccount();
   if (view.kind === 'transactions') return renderTransactions();
   return renderHome();
@@ -318,8 +498,11 @@ function statusNotes() {
 }
 
 function accountRow(a) {
-  const stale = a.balance_date && Date.now() - Date.parse(a.balance_date) > STALE_MS;
-  const sub = [a.org, stale ? `as of ${fmt.date(a.balance_date)}` : null].filter(Boolean).join(' · ');
+  const when = a.balance_date || a.updated_at;
+  const stale = when && Date.now() - Date.parse(when) > STALE_MS;
+  const age = when ? fmt.relTime(when) : '';
+  const updated = !age ? null : age === 'now' ? 'Updated just now' : /^\d+[mhd]$/.test(age) ? `Updated ${age} ago` : `Updated ${age}`;
+  const sub = [a.org, updated].filter(Boolean).join(' · ');
   return el('button', { type: 'button', class: `fn-acct${a.hidden ? ' hidden' : ''}`, 'on:click': () => nav.go(`#/finances/a/${a.id}`) },
     el('span', { class: 'fn-acct-text' },
       el('span', { class: 'fn-acct-name', text: accountName(a) }),
@@ -358,7 +541,7 @@ function loadMoreButton(account) {
     btn.disabled = true;
     const last = txs.transactions[txs.transactions.length - 1];
     try {
-      const next = await api(`/api/finances/transactions?limit=50&before=${encodeURIComponent(last.posted)}${account ? `&account=${encodeURIComponent(account)}` : ''}`);
+      const next = await fapi(`/api/finances/transactions?limit=50&before=${encodeURIComponent(last.posted)}${account ? `&account=${encodeURIComponent(account)}` : ''}`);
       if (!root) return;
       txs = { transactions: [...txs.transactions, ...next.transactions], more: next.more };
       render();
@@ -374,7 +557,7 @@ async function syncNow(btn) {
   if (btn) btn.disabled = true;
   toast('Updating from SimpleFIN…');
   try {
-    data = await api('/api/finances/sync', { method: 'POST', timeout: 90_000 });
+    data = await fapi('/api/finances/sync', { method: 'POST', timeout: 90_000 });
     haptic('success');
     if (data.sync.last_error) toast(data.sync.last_error, { kind: 'error', ms: 4000 });
     else toast('Balances updated');
@@ -435,7 +618,7 @@ async function goalPicker() {
   });
   if (choice === null) return;
   try {
-    data = await api('/api/finances/goal', { method: 'PUT', body: { goal: choice === 'auto' ? null : choice === 'off' ? 0 : choice } });
+    data = await fapi('/api/finances/goal', { method: 'PUT', body: { goal: choice === 'auto' ? null : choice === 'off' ? 0 : choice } });
     haptic('success');
     render();
   } catch (err) {
@@ -445,10 +628,12 @@ async function goalPicker() {
 
 async function homeMenu() {
   const actions = [];
+  actions.push({ label: 'PIN / Face ID Lock', value: 'lock' });
   actions.push({ label: data.goal_link ? `Net Worth Goal: ${data.goal_link.title}` : 'Net Worth Goal: Off', value: 'goal' });
   if (data.connected) actions.push({ label: 'Replace SimpleFIN Connection', value: 'replace' }, { label: 'Disconnect SimpleFIN', value: 'disconnect', destructive: true });
   else actions.push({ label: 'Connect SimpleFIN', value: 'replace' });
   const choice = await actionSheet({ title: 'Finances', message: data.connected ? updatedLine() : '', actions });
+  if (choice === 'lock') return lockMenu();
   if (choice === 'goal') return goalPicker();
   if (choice === 'replace') return connectSheet();
   if (choice === 'disconnect') {
@@ -459,7 +644,7 @@ async function homeMenu() {
     });
     if (!ok) return;
     try {
-      await api('/api/finances/connect', { method: 'DELETE' });
+      await fapi('/api/finances/connect', { method: 'DELETE' });
       toast('Disconnected');
       refresh();
     } catch (err) {
@@ -496,7 +681,7 @@ function connectForm({ onDone } = {}) {
     go.disabled = true;
     go.textContent = 'Connecting…';
     try {
-      data = await api('/api/finances/connect', { method: 'POST', body: { token }, timeout: 120_000 });
+      data = await fapi('/api/finances/connect', { method: 'POST', body: { token }, timeout: 120_000 });
       input.value = '';
       releaseReload(HOLD_KEY);
       haptic('success');
@@ -613,7 +798,7 @@ async function accountMenu(a) {
 
 async function patchAccount(a, body) {
   try {
-    await api(`/api/finances/accounts/${encodeURIComponent(a.id)}`, { method: 'PATCH', body });
+    await fapi(`/api/finances/accounts/${encodeURIComponent(a.id)}`, { method: 'PATCH', body });
     haptic('success');
     refresh();
   } catch (err) {

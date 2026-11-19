@@ -15,6 +15,14 @@
 //   POST   /api/finances/connect {token}      -> same as GET /api/finances   (in-app only: the connector denies it)
 //          token = a SimpleFIN setup token (base64 claim URL) or an access URL; only *.simplefin.org hosts
 //   DELETE /api/finances/connect              -> 204  forgets the access URL; balances and history stay
+//   GET    /api/finances/lock                 -> { enabled, unlocked, devices }            (never locked)
+//   POST   /api/finances/unlock {pin} | {device_id, device_key} -> { token, expires_in }
+//   POST   /api/finances/lock/pin {pin, current?} -> { token, expires_in }   sets/changes the PIN (4-8 digits);
+//                                                changing needs an unlocked token or the current PIN
+//   DELETE /api/finances/lock/pin               -> 204  turns the lock off (needs an unlocked token)
+//   POST   /api/finances/lock/device            -> { device_id, device_key }   (needs an unlocked token) a key the
+//                                                iPhone keeps in its Keychain behind Face ID / the passcode
+//   POST   /api/finances/lock/now               -> 204  forgets the caller's unlock token
 //   PUT    /api/finances/goal {goal}          -> same as GET /api/finances. goal = an active goal measured in "$"
 //                                                with a target, 0 = off, null = automatic (see below)
 //
@@ -25,6 +33,13 @@
 // Check-ins go through the Goals routes on the loopback address, so Goals keeps its own rules.
 // GET /api/finances adds goal_link: { goal_id, title, target_value, current_value, progress, target_date, auto } | null.
 //
+// Lock: once a PIN is set, every other /api/finances route answers 423 unless the request carries
+// X-Finances-Unlock: <token> from /unlock (valid 5 minutes, extended on each use; kept in memory, so
+// a restart locks). The iPhone app unlocks with Face ID / the passcode: it holds a device key in its
+// Keychain and sends it to /unlock. 5 wrong tries lock /unlock for 5 minutes. Claude's connector
+// (header X-JakesData-Connector, which the public gateway never forwards) is not locked; the lock and
+// connect routes are in its DENY list. PIN and device keys are stored as scrypt hashes in
+// DATA/finances/lock.json (mode 600).
 // The access URL (it carries the credentials) lives in DATA/finances/simplefin, mode 600. It is
 // never stored in the database, never returned by a route and never logged.
 //
@@ -44,7 +59,7 @@
 // today's balance; investment and crypto values move with prices, so they start flat instead.
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { readJsonBody, sendEmpty, HttpError } from '../http.js';
 import { now, text, localDay } from './_lib.js';
 
@@ -127,6 +142,50 @@ export default {
       const tmp = `${secretFile}.tmp`;
       fs.writeFileSync(tmp, url, { mode: 0o600 });
       fs.renameSync(tmp, secretFile);
+    };
+
+    // ---- the lock
+    const lockFile = path.join(ctx.dataDir, 'finances', 'lock.json');
+    const UNLOCK_MS = 5 * 60_000;
+    const tokens = new Map();              // token -> expires (ms)
+    let fails = 0;
+    let blockedUntil = 0;
+    const readLock = () => {
+      try { return JSON.parse(fs.readFileSync(lockFile, 'utf8')); } catch { return { pin: null, devices: [] }; }
+    };
+    const writeLock = (lock) => {
+      fs.mkdirSync(path.dirname(lockFile), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(`${lockFile}.tmp`, JSON.stringify(lock), { mode: 0o600 });
+      fs.renameSync(`${lockFile}.tmp`, lockFile);
+    };
+    const hashOf = (secret, salt = randomBytes(16).toString('hex')) => ({ salt, hash: scryptSync(String(secret), salt, 32).toString('hex') });
+    const matches = (secret, stored) => {
+      if (!stored || !stored.salt || !stored.hash) return false;
+      const a = Buffer.from(hashOf(secret, stored.salt).hash, 'hex');
+      const b = Buffer.from(stored.hash, 'hex');
+      return a.length === b.length && timingSafeEqual(a, b);
+    };
+    const lockEnabled = () => Boolean(readLock().pin);
+    const issueToken = () => {
+      const token = randomBytes(24).toString('base64url');
+      tokens.set(token, Date.now() + UNLOCK_MS);
+      return { token, expires_in: UNLOCK_MS / 1000 };
+    };
+    const tokenOk = (req) => {
+      const token = String(req.headers['x-finances-unlock'] || '');
+      const until = token && tokens.get(token);
+      if (!until || until < Date.now()) { if (token) tokens.delete(token); return false; }
+      tokens.set(token, Date.now() + UNLOCK_MS);
+      return true;
+    };
+    function guard(req) {
+      if (req.headers['x-jakesdata-connector'] === '1') return; // Claude, through its own sign-in
+      if (!lockEnabled() || tokenOk(req)) return;
+      throw new HttpError(423, 'Finances is locked');
+    }
+    const pinOf = (value) => {
+      if (typeof value !== 'string' || !/^\d{4,8}$/.test(value)) throw new HttpError(400, 'The PIN must be 4 to 8 digits');
+      return value;
     };
 
     // ---- the net-worth goal
@@ -219,9 +278,10 @@ export default {
     setTimeout(() => { sync('startup'); }, FIRST_SYNC_DELAY_MS).unref();
     setInterval(() => { sync('schedule'); }, SYNC_EVERY_MS).unref();
 
-    r.get('/api/finances', () => overview());
+    r.get('/api/finances', (req) => { guard(req); return overview(); });
 
     r.get('/api/finances/history', (req, res, { query }) => {
+      guard(req);
       const raw = query.days === undefined || query.days === '' ? '90' : String(query.days);
       let days = null;
       if (raw !== 'all') {
@@ -234,6 +294,7 @@ export default {
     });
 
     r.get('/api/finances/transactions', (req, res, { query }) => {
+      guard(req);
       const limit = query.limit === undefined ? 50 : Number(query.limit);
       if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new HttpError(400, 'limit must be 1..200');
       const before = query.before ? String(query.before) : null;
@@ -244,6 +305,7 @@ export default {
     });
 
     r.patch('/api/finances/accounts/:id', async (req, res, { params }) => {
+      guard(req);
       const current = repo.account(params.id);
       if (!current) throw new HttpError(404, 'account not found');
       const body = await readJsonBody(req);
@@ -267,7 +329,8 @@ export default {
       return { account: repo.accountOut(repo.account(current.id)) };
     });
 
-    r.post('/api/finances/sync', async () => {
+    r.post('/api/finances/sync', async (req) => {
+      guard(req);
       if (!readAccess()) throw new HttpError(409, 'SimpleFIN is not connected yet');
       const last = repo.lastAttempt();
       if (!running && last && Date.now() - Date.parse(last) < MANUAL_GAP_MS) {
@@ -278,6 +341,7 @@ export default {
     });
 
     r.post('/api/finances/connect', async (req) => {
+      guard(req);
       const body = await readJsonBody(req);
       const token = typeof body.token === 'string' ? body.token.trim().replace(/\s+/g, '') : '';
       if (!token) throw new HttpError(400, 'Paste a SimpleFIN setup token');
@@ -291,7 +355,70 @@ export default {
       return overview();
     });
 
+    r.get('/api/finances/lock', (req) => {
+      const lock = readLock();
+      return { enabled: Boolean(lock.pin), unlocked: !lock.pin || tokenOk(req), devices: (lock.devices || []).length };
+    });
+
+    r.post('/api/finances/unlock', async (req) => {
+      const lock = readLock();
+      if (!lock.pin) return issueToken();
+      if (Date.now() < blockedUntil) throw new HttpError(429, 'Too many wrong tries. Wait a few minutes.');
+      const body = await readJsonBody(req);
+      let ok = false;
+      if (typeof body.pin === 'string') ok = matches(body.pin, lock.pin);
+      else if (typeof body.device_id === 'string' && typeof body.device_key === 'string') {
+        const device = (lock.devices || []).find((d) => d.id === body.device_id);
+        ok = Boolean(device) && matches(body.device_key, device);
+      }
+      if (!ok) {
+        fails += 1;
+        if (fails >= 5) { fails = 0; blockedUntil = Date.now() + 5 * 60_000; }
+        throw new HttpError(401, typeof body.pin === 'string' ? 'Wrong PIN' : 'Face ID unlock is not set up on this phone anymore. Use the PIN.');
+      }
+      fails = 0;
+      return issueToken();
+    });
+
+    r.post('/api/finances/lock/pin', async (req) => {
+      const body = await readJsonBody(req);
+      const lock = readLock();
+      if (lock.pin && !tokenOk(req) && !(typeof body.current === 'string' && matches(body.current, lock.pin))) {
+        throw new HttpError(423, 'Unlock Finances first');
+      }
+      lock.pin = hashOf(pinOf(body.pin));
+      lock.devices = lock.devices || [];
+      writeLock(lock);
+      log.info('finances PIN set');
+      return issueToken();
+    });
+
+    r.delete('/api/finances/lock/pin', (req, res) => {
+      if (lockEnabled() && !tokenOk(req)) throw new HttpError(423, 'Unlock Finances first');
+      fs.rmSync(lockFile, { force: true });
+      tokens.clear();
+      log.info('finances lock turned off');
+      sendEmpty(res, 204);
+    });
+
+    r.post('/api/finances/lock/device', (req) => {
+      const lock = readLock();
+      if (!lock.pin) throw new HttpError(409, 'Set a PIN first');
+      if (!tokenOk(req)) throw new HttpError(423, 'Unlock Finances first');
+      const id = randomBytes(9).toString('base64url');
+      const key = randomBytes(32).toString('base64url');
+      lock.devices = [...(lock.devices || []).slice(-4), { id, ...hashOf(key), created_at: now() }];
+      writeLock(lock);
+      return { device_id: id, device_key: key };
+    });
+
+    r.post('/api/finances/lock/now', (req, res) => {
+      tokens.delete(String(req.headers['x-finances-unlock'] || ''));
+      sendEmpty(res, 204);
+    });
+
     r.put('/api/finances/goal', async (req) => {
+      guard(req);
       const body = await readJsonBody(req);
       if (!Object.hasOwn(body, 'goal')) throw new HttpError(400, 'send { goal: <goal id> | 0 | null }');
       const goal = body.goal;
@@ -310,6 +437,7 @@ export default {
     });
 
     r.delete('/api/finances/connect', (req, res) => {
+      guard(req);
       fs.rmSync(secretFile, { force: true });
       repo.markError('');
       log.info('SimpleFIN disconnected');

@@ -148,3 +148,7 @@
 .app-finances .fn-runway-big { font-size: 28px; font-weight: 700; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
 .app-finances .fn-runway-line { font-size: 15px; font-variant-numeric: tabular-nums; margin-top: 2px; }
 .app-finances .fn-runway-note { font-size: 13px; color: var(--muted); margin-top: 6px; }
+
+/* ---- lock screen */
+.app-finances .fn-pin { width: 100%; box-sizing: border-box; font-size: 22px; letter-spacing: 0.3em; text-align: center; }
+.app-finances .fn-face { width: 100%; min-height: 44px; margin: 4px 0 12px; }

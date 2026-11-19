@@ -10,8 +10,8 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     # The app and its RestTimer extension must carry the same versions.
-    CURRENT_PROJECT_VERSION: 7
-    MARKETING_VERSION: "1.6"
+    CURRENT_PROJECT_VERSION: 8
+    MARKETING_VERSION: "1.7"
 targets:
   JakesData:
     type: application
@@ -47,6 +47,7 @@ targets:
         NSCameraUsageDescription: Jake's Brain uses the camera for photos and videos you post.
         NSMicrophoneUsageDescription: Jake's Brain uses the microphone when you record a video to post.
         NSPhotoLibraryUsageDescription: Jake's Brain lets you pick photos and videos to post.
+        NSFaceIDUsageDescription: Jake's Brain uses Face ID to unlock Finances.
         # Workout timers count down on the lock screen (WorkoutTimer.swift + the RestTimer extension).
         NSSupportsLiveActivities: true
     scheme:
