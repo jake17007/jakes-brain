@@ -2,18 +2,59 @@
 # One-time, from the Mac: put the Claude connector on the internet through a tunnel, so Claude
 # (the app, claude.ai, Claude Code) can use Jake's Brain the way it uses Notion.
 #
+#   deploy/connector/setup-connector.sh funnel [jakes-brain]      (Tailscale Funnel, recommended)
 #   deploy/connector/setup-connector.sh ngrok <authtoken> <name.ngrok-free.app>
 #   deploy/connector/setup-connector.sh cloudflare <tunnel-token> <brain.yourdomain.com>
 #
 # Installs the tunnel program in ~/.local/bin on the PC (no sudo), stores the token in
 # ~/.config/jakes-brain/tunnel.env (mode 600), starts jakes-brain-tunnel.service, saves the
 # public address in the app, and prints the address to add in Claude. Safe to re-run.
+# funnel: a Tailscale identity of its own named <name> (default jakes-brain) on the PC's tailnet;
+# the first run prints a Tailscale sign-in link to approve the new device. Address:
+# https://<name>.<tailnet>.ts.net. Free, no domain, no upload cap; Tailscale caps Funnel bandwidth.
 set -euo pipefail
 PC=${JAKESDATA_PC:-pcserver}
 kind=${1:-}; token=${2:-}; host=${3:-}
+if [ "$kind" = funnel ]; then
+  name=${2:-jakes-brain}
+  if [[ ! "$name" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]; then echo "funnel name must be lowercase letters, digits and dashes"; exit 1; fi
+  ssh "$PC" NAME="$name" bash -s <<'REMOTE'
+set -euo pipefail
+cd ~/jakes-data-app
+grep -q 'funnel)' deploy/connector/tunnel.sh || { echo "The PC has not pulled the Funnel support yet. Wait a minute, then re-run."; exit 1; }
+if ! curl -fsS --max-time 5 http://127.0.0.1:4800/api/connector >/dev/null; then
+  echo "The PC is not running Jake's Brain. Start jakes-data.service, then re-run."; exit 1
+fi
+# Funnel needs no token; this replaces any ngrok/Cloudflare settings (and their tokens).
+(umask 077; mkdir -p ~/.config/jakes-brain; printf 'TUNNEL=funnel\n' > ~/.config/jakes-brain/tunnel.env)
+mkdir -p ~/.config/systemd/user
+cp deploy/connector/jakes-brain-tunnel.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable jakes-brain-tunnel.service >/dev/null
+systemctl --user restart jakes-brain-tunnel.service
+loginctl enable-linger "$USER" 2>/dev/null || true
+sock=~/.local/state/jakes-brain-tailscale/tailscaled.sock
+for _ in $(seq 1 30); do [ -S "$sock" ] && break; sleep 1; done
+ts() { tailscale --socket="$sock" "$@"; }
+state() { ts status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("BackendState",""))' 2>/dev/null || true; }
+if [ "$(state)" != Running ]; then
+  echo "Approve the new Tailscale device '$NAME' by opening the link below (waits up to 15 minutes):"
+  ts up --hostname="$NAME" --timeout=15m
+fi
+ts funnel --bg --yes 127.0.0.1:4801 >/dev/null
+host=$(ts status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')
+curl -fsS --max-time 5 -X PATCH -H 'Content-Type: application/json' \
+  -d "{\"connector.publicUrl\":\"https://$host\"}" http://127.0.0.1:4800/api/settings >/dev/null
+echo
+echo "Funnel is on: https://$host -> 127.0.0.1:4801 (public DNS can take up to 10 minutes)."
+echo "Add this in Claude (Customize → Connectors → Add custom connector) and sign in:"
+echo "  https://$host/mcp"
+REMOTE
+  exit 0
+fi
 host=${host#https://}; host=${host%%/*}
 if [[ ! "$kind" =~ ^(ngrok|cloudflare)$ || -z "$token" || -z "$host" ]]; then
-  sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 fi
 

@@ -34,6 +34,18 @@ Manage the password on the private desktop; public Settings can sign out its own
 
 Pick one tunnel:
 
+- **Tailscale Funnel** (recommended: free, no domain, no upload cap, stable address). The PC is
+  already on Tailscale. Jake's Brain gets a Tailscale identity of its own, so its address is
+  `https://jakes-brain.<tailnet>.ts.net` and it never collides with another app's Funnel:
+
+  ```bash
+  deploy/connector/setup-connector.sh funnel
+  ```
+
+  The first run prints a Tailscale link: open it and approve the new `jakes-brain` device. In the
+  Tailscale admin console, turn off **key expiry** for that device, or it signs out after 180 days.
+  Tailscale caps Funnel bandwidth (unpublished, not configurable); fine for this app's traffic.
+
 - **ngrok** (free, no domain needed). Sign up at ngrok.com, copy your **authtoken**
   (Getting Started → Your Authtoken) and your free **static domain**
   (Universal Gateway → Domains, something like `jake-brain.ngrok-free.app`). Then:
