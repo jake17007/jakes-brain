@@ -1,20 +1,27 @@
 // The workout logger, shared by three modes:
-//   active  — the workout in progress (live duration, rest timer, Finish; the draft persists
-//             to localStorage + the server so it survives reloads and follows Jake across devices)
+//   active  — the workout in progress (live duration pinned under the nav bar, rest timer, hold
+//             timer, Finish; the draft persists to localStorage + the server so it survives
+//             reloads and follows Jake across devices)
 //   edit    — a saved workout opened for changes (Save → PUT)
 //   routine — a routine template (no checkmarks; Save → POST/PUT routine)
-// Each exercise is a card with a set table: SET | PREVIOUS | weight/reps/time/distance | ✓.
+// Each exercise is a card with a form-video link, a weight suggestion (active, weight & reps),
+// a history line that opens to the last 5 workouts, and a set table:
+// SET | PREVIOUS | weight/reps/time/distance | (hold timer, time exercises) | ✓.
+// Rest and hold timers show in the bottom bar, ding at the end (Web Audio in a browser, the
+// notification sound in the iPhone shell) and, in the shell, keep counting on the lock screen.
 import * as kit from '../../kit.js';
 import { formSheet } from '../../form.js';
 import { pickExercises } from './picker.js';
 import {
-  getUnits, distanceUnit, fmtClock, fmtLong, digitsToClock, setText, setLabels, SET_KIND_LABELS,
-  REST_CHOICES, blankSet, draftSet, serverSet, draftExercise, writeActive, clearActive, uid,
+  getUnits, distanceUnit, fmtClock, fmtLong, fmtWeight, digitsToClock, clockToSeconds, setText, setLabels, SET_KIND_LABELS,
+  REST_CHOICES, HOLD_CHOICES, blankSet, draftSet, serverSet, draftExercise, writeActive, clearActive, uid,
+  exerciseById, formVideoUrl, editVideoLink, nativeTimer, unlockAudio, ding, historySummary, historyRow, suggestNext,
 } from './lib.js';
 
 const { api, el, toast, haptic, navbar, navButton, icon, confirmSheet, actionSheet, holdReload, releaseReload, nav } = kit;
 const HOLD = 'workout:logger';
 const WEEKDAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
+const REST_TEXT = { label: 'Rest', title: 'Rest over', body: 'Time for your next set.' };
 
 function sourceLink(url) {
   try {
@@ -45,12 +52,15 @@ export function defaultTitle(date = new Date()) {
   return 'Night Workout';
 }
 
-// draft: { mode, id, title, started_at, ended_at, unit, routine_id, notes, rest_end, rest_total, exercises }
+// draft: { mode, id, title, started_at, ended_at, unit, routine_id, notes, rest_end, rest_total,
+//          hold: { ex_uid, set_uid, end, total } | null, exercises }
 export function mountLogger(root, ctx, draft, { onDone } = {}) {
   const mode = draft.mode;
   const units = draft.unit || getUnits();
   draft.unit = units;
   let previous = {};
+  let recent = {};               // exercise id -> last 5 workouts with it (history line + suggestion)
+  const openHistory = new Set(); // exercise uids whose history list is expanded
   let timer = 0;
   let dirty = false;
   let saving = false;
@@ -129,22 +139,33 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
     tail.push(el('button', { type: 'button', class: 'wo-btn wo-btn-danger', text: 'Discard Workout', 'on:click': discard }));
   }
 
+  // Bottom bar: the rest timer (−15 / +15 / Skip) or a hold timer (Cancel / Done).
   const restBar = el('div', { class: 'wo-rest', hidden: true });
   const restFill = el('div', { class: 'wo-rest-fill' });
-  const restTime = el('div', { class: 'wo-rest-time' });
+  const restLabel = el('div', { class: 'wo-rest-label' });
+  const restTime = el('div', { class: 'wo-rest-time', role: 'timer' });
+  const restButtons = [
+    el('button', { type: 'button', class: 'wo-rest-btn', text: '−15', 'aria-label': 'Take 15 seconds off', 'on:click': () => bumpRest(-15) }),
+    el('button', { type: 'button', class: 'wo-rest-btn', text: '+15', 'aria-label': 'Add 15 seconds', 'on:click': () => bumpRest(15) }),
+    el('button', { type: 'button', class: 'wo-rest-btn wo-rest-skip', text: 'Skip', 'on:click': () => stopRest() }),
+  ];
+  const holdButtons = [
+    el('button', { type: 'button', class: 'wo-rest-btn', text: 'Cancel', 'aria-label': 'Cancel the hold timer', 'on:click': () => cancelHold() }),
+    el('button', { type: 'button', class: 'wo-rest-btn wo-rest-done', text: 'Done', 'aria-label': 'Stop now and log the time held', 'on:click': () => finishHold(true) }),
+  ];
   restBar.append(
     el('div', { class: 'wo-rest-track' }, restFill),
     el('div', { class: 'wo-rest-row' },
-      el('button', { type: 'button', class: 'wo-rest-btn', text: '−15', 'aria-label': 'Take 15 seconds off', 'on:click': () => bumpRest(-15) }),
-      restTime,
-      el('button', { type: 'button', class: 'wo-rest-btn', text: '+15', 'aria-label': 'Add 15 seconds', 'on:click': () => bumpRest(15) }),
-      el('button', { type: 'button', class: 'wo-rest-btn wo-rest-skip', text: 'Skip', 'on:click': () => stopRest() })));
+      restButtons[0], holdButtons[0],
+      el('div', { class: 'wo-rest-clock' }, restLabel, restTime),
+      restButtons[1], restButtons[2], holdButtons[1]));
 
   const content = el('div', { class: 'app-content wo-log' }, titleInput, stats, plan, list, empty, ...tail);
   root.append(bar, content, restBar);
 
   render();
   loadPrevious();
+  loadRecent();
   timer = setInterval(tick, 250);
   tick();
 
@@ -163,14 +184,20 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
     return [['d', distanceUnit(exerciseDistanceUnit, units), 'decimal'], ['t', 'Time', 'numeric']];
   }
 
+  // Time exercises (planks, holds) get a countdown per set while working out.
+  function hasTimer(ex) {
+    return mode === 'active' && ex.kind === 'time';
+  }
+
   function exerciseCard(ex) {
     const cols = columns(ex.kind, ex.distance_unit);
     const labels = setLabels(ex.sets);
     const prev = previous[ex.exercise_id] || [];
-    const grid = `wo-grid-${cols.length}${mode === 'routine' ? ' no-check' : ''}`;
+    const grid = `wo-grid-${cols.length}${mode === 'routine' ? ' no-check' : ''}${hasTimer(ex) ? ' has-timer' : ''}`;
     const head = el('div', { class: `wo-set-head ${grid}` },
       el('span', { text: 'Set' }), el('span', { text: 'Previous' }),
       ...cols.map(([, label]) => el('span', { text: label })),
+      hasTimer(ex) ? el('span', { text: 'Timer', class: 'wo-head-timer' }) : null,
       mode === 'routine' ? null : el('span', { class: 'wo-head-check' }, icon('check', { size: 16, strokeWidth: 2.4 })));
     const rows = ex.sets.map((s, i) => setRow(ex, s, i, labels[i], prev[i], cols, grid));
     const restLabel = ex.rest ? `Rest ${fmtClock(ex.rest)}` : 'Rest off';
@@ -191,8 +218,12 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
     return el('section', { class: 'wo-ex card', dataset: { uid: ex.uid } },
       el('div', { class: 'wo-ex-head' },
         el('button', { type: 'button', class: 'wo-ex-name', text: ex.name, 'on:click': () => exerciseMenu(ex) }),
+        el('a', {
+          class: 'wo-ex-video', href: formVideoUrl(ex.exercise_id, ex.name), target: '_blank', rel: 'noopener noreferrer',
+          'aria-label': `Form video for ${ex.name}`, title: 'Form video',
+        }, icon('video', { size: 22 })),
         el('button', { type: 'button', class: 'wo-ex-more', 'aria-label': `Options for ${ex.name}`, 'on:click': () => exerciseMenu(ex) }, icon('more'))),
-      prescription, note,
+      prescription, insight(ex), note,
       el('button', { type: 'button', class: 'wo-rest-chip', 'on:click': () => pickRest(ex) }, icon('refresh', { size: 15, strokeWidth: 2.2 }), el('span', { text: restLabel })),
       head,
       ...rows,
@@ -231,6 +262,14 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
       return input;
     });
     row.append(kindBtn, prevBtn, ...inputs);
+    if (hasTimer(ex)) {
+      const running = draft.hold && draft.hold.set_uid === s.uid;
+      row.append(el('button', {
+        type: 'button', class: `wo-timer-btn${running ? ' running' : ''}`, 'aria-pressed': String(Boolean(running)),
+        'aria-label': running ? `Timer running for set ${label}` : `Start a timer for set ${label}`,
+        'on:click': () => (running ? null : startHold(ex, s, ph)),
+      }, icon('play', { size: 16, strokeWidth: 2.4 })));
+    }
     if (mode !== 'routine') {
       row.append(el('button', {
         type: 'button', class: 'wo-check', role: 'checkbox', 'aria-checked': String(s.done), 'aria-label': `Set ${label} done`,
@@ -238,6 +277,75 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
       }, icon('check', { size: 18, strokeWidth: 2.8 })));
     }
     return row;
+  }
+
+  // Suggestion (active workouts, weight & reps) and the history line, from `recent`.
+  function insight(ex) {
+    if (mode === 'routine') return null;
+    const sessions = recent[ex.exercise_id];
+    if (!sessions) return null; // still loading, or the PC is unreachable
+    const parts = [];
+    if (mode === 'active' && ex.kind === 'weight') {
+      const lib = exerciseById(ex.exercise_id);
+      const tip = suggestNext(sessions, { prescription: ex.prescription, equipment: lib?.equipment, muscle: lib?.muscle || ex.muscle });
+      if (tip) {
+        const value = `${fmtWeight(tip.weight_kg)} ${units} × ${tip.reps}`;
+        parts.push(el('div', { class: 'wo-suggest' },
+          el('div', { class: 'wo-suggest-text' },
+            el('span', { class: 'wo-suggest-k', text: 'Suggested' }),
+            el('span', { class: 'wo-suggest-v', text: value }),
+            el('span', { class: 'wo-suggest-why', text: tip.reason })),
+          el('button', {
+            type: 'button', class: 'wo-suggest-use', text: 'Use', 'aria-label': `Use ${value} for the sets not checked off`,
+            'on:click': () => useSuggestion(ex, tip),
+          })));
+      } else if (!sessions.length) {
+        parts.push(el('div', { class: 'wo-suggest-empty', text: 'Log it once to get a weight suggestion.' }));
+      }
+    }
+    if (sessions.length) {
+      const open = openHistory.has(ex.uid);
+      parts.push(el('button', {
+        type: 'button', class: 'wo-hist-toggle', 'aria-expanded': String(open),
+        'on:click': () => {
+          if (open) openHistory.delete(ex.uid); else openHistory.add(ex.uid);
+          redrawCard(ex);
+        },
+      }, el('span', { class: 'wo-hist-k', text: 'History' }),
+      el('span', { class: 'wo-hist-sum', text: historySummary(ex.kind, sessions, ex.distance_unit) }),
+      icon(open ? 'chevron-up' : 'chevron-down', { size: 16, strokeWidth: 2.4 })));
+      if (open) {
+        parts.push(el('ul', { class: 'wo-hist-list' }, ...sessions.map((session) => {
+          const row = historyRow(ex.kind, session, ex.distance_unit);
+          return el('li', null, el('span', { class: 'wo-hist-date', text: row.date }), el('span', { class: 'wo-hist-sets', text: row.text }));
+        })));
+      }
+    }
+    return parts.length ? el('div', { class: 'wo-insight' }, ...parts) : null;
+  }
+
+  // Fill the suggested weight and reps into every normal set not yet checked off.
+  function useSuggestion(ex, tip) {
+    let filled = 0;
+    for (const s of ex.sets) {
+      if (s.done || s.kind !== 'normal') continue;
+      s.w = fmtWeight(tip.weight_kg);
+      s.r = String(tip.reps);
+      filled += 1;
+    }
+    if (!filled) {
+      toast('Every set is already checked off — add a set first');
+      return;
+    }
+    haptic('light');
+    persist();
+    redrawCard(ex);
+    updateStats();
+  }
+
+  function redrawCard(ex) {
+    const card = list.querySelector(`[data-uid="${ex.uid}"]`);
+    if (card) card.replaceWith(exerciseCard(ex));
   }
 
   function fillDraftValues(s, source, overwrite) {
@@ -252,6 +360,8 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
   }
 
   function toggleDone(ex, s, ph) {
+    // Checking off a set whose hold timer is running = "Done": log the time held so far.
+    if (draft.hold && draft.hold.set_uid === s.uid) return finishHold(true);
     if (!s.done) {
       if (ph) fillDraftValues(s, ph, false);
       if (!serverSet(ex.kind, s, units, ex.distance_unit)) {
@@ -261,6 +371,7 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
       }
       s.done = true;
       haptic('success');
+      unlockAudio(); // this tap lets the browser ding when the rest ends
       if (mode === 'active' && ex.rest) startRest(ex.rest);
     } else {
       s.done = false;
@@ -295,20 +406,32 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
         ? fmtClock((Date.now() - Date.parse(draft.started_at)) / 1000)
         : fmtLong((Date.parse(draft.ended_at) - Date.parse(draft.started_at)) / 1000);
     }
-    if (draft.rest_end) {
-      const left = Math.ceil((draft.rest_end - Date.now()) / 1000);
+    if (draft.hold) {
+      const left = Math.ceil((draft.hold.end - Date.now()) / 1000);
       if (left <= 0) {
-        stopRest();
-        haptic('success');
-        toast('Rest over — next set');
+        finishHold(false);
         return;
       }
-      restBar.hidden = false;
-      restTime.textContent = fmtClock(left);
-      restFill.style.width = `${Math.max(0, Math.min(100, (left / (draft.rest_total || left)) * 100))}%`;
+      showBar('hold', 'Hold', left, draft.hold.total);
+    } else if (draft.rest_end) {
+      const left = Math.ceil((draft.rest_end - Date.now()) / 1000);
+      if (left <= 0) {
+        finishRest();
+        return;
+      }
+      showBar('rest', 'Rest', left, draft.rest_total);
     } else {
       restBar.hidden = true;
     }
+  }
+
+  function showBar(kind, label, left, total) {
+    restBar.hidden = false;
+    for (const b of restButtons) b.hidden = kind !== 'rest';
+    for (const b of holdButtons) b.hidden = kind !== 'hold';
+    restLabel.textContent = label;
+    restTime.textContent = fmtClock(left);
+    restFill.style.width = `${Math.max(0, Math.min(100, (left / (total || left)) * 100))}%`;
   }
 
   // ---- rest timer
@@ -316,6 +439,7 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
   function startRest(seconds) {
     draft.rest_end = Date.now() + seconds * 1000;
     draft.rest_total = seconds;
+    nativeTimer.start(draft.rest_end, REST_TEXT);
     persist();
     tick();
   }
@@ -323,15 +447,97 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
     if (!draft.rest_end) return;
     draft.rest_end += delta * 1000;
     draft.rest_total = Math.max(1, (draft.rest_total || 0) + delta);
+    if (draft.rest_end > Date.now()) nativeTimer.start(draft.rest_end, REST_TEXT);
     haptic('light');
     persist();
     tick();
   }
-  function stopRest() {
+  function clearRest() {
     draft.rest_end = null;
     draft.rest_total = null;
+  }
+  // Skip: nothing should ding.
+  function stopRest() {
+    clearRest();
+    nativeTimer.stop();
     persist();
-    restBar.hidden = true;
+    tick();
+  }
+  // Ran out: ding (in the shell the notification is the ding), buzz, say so.
+  function finishRest() {
+    clearRest();
+    nativeTimer.finish();
+    ding();
+    haptic('success');
+    toast('Rest over — next set');
+    persist();
+    tick();
+  }
+
+  // ---- hold timer (time exercises: "hold a plank for 0:30")
+
+  async function startHold(ex, s, ph) {
+    unlockAudio();
+    let seconds = clockToSeconds(s.t) || (ph ? clockToSeconds(ph.t) : null);
+    if (!seconds) {
+      const choice = await actionSheet({
+        title: 'Hold timer', message: ex.name,
+        actions: HOLD_CHOICES.map((sec) => ({ label: fmtClock(sec), value: sec })),
+      });
+      if (choice === null) return;
+      seconds = choice;
+    }
+    if (draft.hold) nativeTimer.stop();
+    clearRest(); // starting the next hold ends the rest; the new native timer replaces it
+    s.t = fmtClock(seconds);
+    s.done = false;
+    draft.hold = { ex_uid: ex.uid, set_uid: s.uid, end: Date.now() + seconds * 1000, total: seconds };
+    nativeTimer.start(draft.hold.end, { label: 'Hold', title: 'Hold done', body: `${ex.name} · ${fmtClock(seconds)}` });
+    haptic('medium');
+    persist();
+    redrawCard(ex);
+    tick();
+  }
+
+  // early = Done before the time ran out: log the time actually held, no ding.
+  function finishHold(early) {
+    const hold = draft.hold;
+    if (!hold) return;
+    draft.hold = null;
+    if (early) {
+      nativeTimer.stop();
+    } else {
+      nativeTimer.finish();
+      ding();
+    }
+    const ex = draft.exercises.find((e) => e.uid === hold.ex_uid);
+    const s = ex && ex.sets.find((x) => x.uid === hold.set_uid);
+    if (!ex || !s) {
+      persist();
+      tick();
+      return;
+    }
+    const held = early ? Math.min(hold.total, Math.max(1, Math.round(hold.total - (hold.end - Date.now()) / 1000))) : hold.total;
+    s.t = fmtClock(held);
+    s.done = true;
+    haptic('success');
+    toast(early ? `Logged ${fmtClock(held)}` : `Hold done — ${fmtClock(held)}`);
+    persist();
+    redrawCard(ex);
+    updateStats();
+    if (ex.rest) startRest(ex.rest);
+    else tick();
+  }
+
+  function cancelHold() {
+    const hold = draft.hold;
+    draft.hold = null;
+    nativeTimer.stop();
+    haptic('light');
+    persist();
+    const ex = hold && draft.exercises.find((e) => e.uid === hold.ex_uid);
+    if (ex) redrawCard(ex);
+    tick();
   }
 
   async function pickRest(ex) {
@@ -359,12 +565,25 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
     } catch { /* the column just stays empty */ }
   }
 
+  async function loadRecent(ids = draft.exercises.map((e) => e.exercise_id)) {
+    if (mode === 'routine') return;
+    const want = [...new Set(ids)].filter((id) => !(id in recent));
+    if (!want.length) return;
+    try {
+      const q = `ids=${want.join(',')}&limit=5${mode === 'edit' && draft.id ? `&exclude=${draft.id}` : ''}`;
+      const data = await api(`/api/workout/recent?${q}`);
+      Object.assign(recent, data.recent || {});
+      render();
+    } catch { /* no history line or suggestion until the PC answers */ }
+  }
+
   async function addExercises() {
     const picked = await pickExercises({ title: 'Add exercises' });
     if (!picked.length) return;
     for (const ex of picked) draft.exercises.push(draftExercise(ex, [blankSet()]));
     persist();
     render();
+    loadRecent(picked.map((e) => e.id));
     await loadPrevious(picked.map((e) => e.id));
     // Start the new exercise with as many sets as last time.
     for (const ex of draft.exercises.slice(-picked.length)) {
@@ -409,6 +628,7 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
     const i = draft.exercises.indexOf(ex);
     // History leaves the logger, which only the active workout (kept in storage) survives.
     const actions = mode === 'active' ? [{ label: 'Exercise History', value: 'history' }] : [];
+    actions.push({ label: 'Form Video Link', value: 'video' });
     actions.push({ label: 'Replace Exercise', value: 'replace' });
     if (ex.kind === 'cardio') actions.push({ label: 'Distance Unit', value: 'distance_unit' });
     if (i > 0) actions.push({ label: 'Move Up', value: 'up' });
@@ -417,6 +637,10 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
     const choice = await actionSheet({ title: ex.name, actions });
     if (choice === 'history') {
       ctx.nav.go(`#/workout/e/${ex.exercise_id}`);
+      return;
+    }
+    if (choice === 'video') {
+      if (await editVideoLink(ex.exercise_id, ex.name)) render();
       return;
     }
     if (choice === 'distance_unit') {
@@ -443,6 +667,7 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
       const fresh = draftExercise(next, ex.sets.map((s) => ({ ...blankSet(s.kind) })), ex.rest);
       fresh.uid = ex.uid;
       draft.exercises[draft.exercises.indexOf(ex)] = fresh;
+      loadRecent([next.id]);
       await loadPrevious([next.id]);
     } else if (choice === 'up' || choice === 'down') {
       const j = choice === 'up' ? i - 1 : i + 1;
@@ -478,6 +703,7 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
   async function discard() {
     const ok = await confirmSheet({ title: 'Discard this workout?', message: 'Nothing from it will be saved.', confirmLabel: 'Discard Workout', destructive: true });
     if (!ok) return;
+    nativeTimer.stop();
     await clearActive();
     haptic('light');
     exit('#/workout');
@@ -558,7 +784,10 @@ export function mountLogger(root, ctx, draft, { onDone } = {}) {
     try {
       const url = mode === 'edit' ? `/api/workout/sessions/${draft.id}` : '/api/workout/sessions';
       const { session } = await api(url, { method: mode === 'edit' ? 'PUT' : 'POST', body, timeout: 20000 });
-      if (mode === 'active') await clearActive();
+      if (mode === 'active') {
+        if (draft.rest_end || draft.hold) nativeTimer.stop();
+        await clearActive();
+      }
       haptic('success');
       exit(mode === 'active' ? `#/workout/s/${session.id}/new` : `#/workout/s/${session.id}`);
     } catch (err) {
@@ -626,6 +855,7 @@ export function newActiveDraft({ title = '', routine = null, program = false } =
     source_id: routine?.source_id || '',
     source_url: routine?.source_url || '',
     rest_end: null,
+    hold: null,
     exercises: routine
       ? routine.exercises.map((ex) => draftExercise(ex, (ex.sets.length ? ex.sets : [{ kind: 'normal' }]).map((s) => draftSet(s, false, ex.distance_unit)), ex.rest ?? 0))
       : [],

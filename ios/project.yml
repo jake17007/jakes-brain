@@ -9,6 +9,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
+    # The app and its RestTimer extension must carry the same versions.
+    CURRENT_PROJECT_VERSION: 6
+    MARKETING_VERSION: "1.5"
 targets:
   JakesData:
     type: application
@@ -16,6 +19,10 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: JakesData
+      - path: Shared
+    dependencies:
+      # The Workout rest/hold timer on the lock screen and in the Dynamic Island.
+      - target: RestTimer
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jakebeau.jakesdata
@@ -28,8 +35,6 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.0"
-        CURRENT_PROJECT_VERSION: 5
-        MARKETING_VERSION: "1.4"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 3VTHP9BHH6
     info:
@@ -42,9 +47,35 @@ targets:
         NSCameraUsageDescription: Jake's Brain uses the camera for photos and videos you post.
         NSMicrophoneUsageDescription: Jake's Brain uses the microphone when you record a video to post.
         NSPhotoLibraryUsageDescription: Jake's Brain lets you pick photos and videos to post.
+        # Workout timers count down on the lock screen (WorkoutTimer.swift + the RestTimer extension).
+        NSSupportsLiveActivities: true
     scheme:
       testTargets:
         - JakesDataTests
+  RestTimer:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: RestTimer
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jakebeau.jakesdata.RestTimer
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "Rest Timer"
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 3VTHP9BHH6
+        SKIP_INSTALL: YES
+    info:
+      path: RestTimer/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
   JakesDataTests:
     type: bundle.unit-test
     platform: iOS

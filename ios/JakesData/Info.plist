@@ -26,5 +26,7 @@
 	<string>Jake's Brain uses the microphone when you record a video to post.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Jake's Brain lets you pick photos and videos to post.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 </dict>
 </plist>

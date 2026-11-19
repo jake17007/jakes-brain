@@ -8,12 +8,17 @@
 // the client converts to lb / miles for display.
 //
 // Routes:
-//   GET    /api/workout/exercises                  -> { exercises: [{id, name, muscle, equipment, kind, custom, times, last_used}] }
+//   GET    /api/workout/exercises                  -> { exercises: [{id, name, muscle, equipment, kind, custom, times, last_used, video_url}] }
 //   POST   /api/workout/exercises {name, muscle, equipment, kind} -> 201 { exercise }
-//   PATCH  /api/workout/exercises/:id {name?, muscle?, equipment?, kind?} -> { exercise }   (custom only; kind only while unused)
+//   PATCH  /api/workout/exercises/:id {name?, muscle?, equipment?, kind?, video_url?} -> { exercise }
+//            name/muscle/equipment/kind: custom only (kind only while unused). video_url: any exercise,
+//            an https link (max 500) to a form video, '' clears it (the app then searches YouTube).
 //   DELETE /api/workout/exercises/:id              -> 204   (custom and unused only, else 409)
 //   GET    /api/workout/exercises/:id/history      -> { exercise, sessions: [{id, title, started_at, sets}], records }
 //   GET    /api/workout/previous?ids=1,2&exclude=<session id> -> { previous: { <exercise id>: [sets of the last workout with it] } }
+//   GET    /api/workout/recent?ids=1,2&limit=5&exclude=<session id>
+//                                                  -> { recent: { <exercise id>: [{id, title, started_at, sets}] } }
+//            the last `limit` (1-10, default 5) workouts with each exercise, newest first
 //   GET    /api/workout/sessions?before=<started_at ISO>&limit=20 -> { sessions: [session], more }
 //   POST   /api/workout/sessions {title, started_at, ended_at, notes?, routine_id?, advance_program?, exercises} -> 201 { session }
 //   GET    /api/workout/sessions/:id               -> { session }
@@ -232,6 +237,11 @@ export default {
       id: 'workout-3',
       sql: "ALTER TABLE workout_entries ADD COLUMN distance_unit TEXT NOT NULL DEFAULT '';",
     },
+    {
+      // A form video per exercise; '' means "search YouTube for it".
+      id: 'workout-4',
+      sql: "ALTER TABLE workout_exercises ADD COLUMN video_url TEXT NOT NULL DEFAULT '';",
+    },
   ],
   register(r, ctx) {
     const repo = workoutRepo(ctx.db);
@@ -255,9 +265,11 @@ export default {
     r.patch('/api/workout/exercises/:id', async (req, res, { params }) => {
       const ex = repo.exercise(parseId(params.id));
       if (!ex) throw new HttpError(404, 'exercise not found');
-      if (!ex.custom) throw new HttpError(409, 'built-in exercises cannot be changed');
       const body = await readJsonBody(req);
       const next = { ...ex };
+      if (body.video_url !== undefined) next.video_url = videoUrl(body.video_url);
+      const changesDefinition = ['name', 'muscle', 'equipment', 'kind'].some((key) => body[key] !== undefined);
+      if (!ex.custom && changesDefinition) throw new HttpError(409, 'built-in exercises cannot be changed');
       if (body.name !== undefined) {
         next.name = text(body.name, 'name', { max: 80, required: true });
         const clash = repo.exerciseByName(next.name);
@@ -296,6 +308,15 @@ export default {
       const previous = {};
       for (const id of new Set(ids)) previous[id] = repo.previousSets(id, exclude);
       return { previous };
+    });
+
+    r.get('/api/workout/recent', (req, res, { query }) => {
+      const ids = String(query.ids || '').split(',').filter(Boolean).slice(0, MAX_EXERCISES).map((v) => parseId(v, 400));
+      const exclude = query.exclude ? parseId(query.exclude, 400) : 0;
+      const limit = Math.min(10, Math.max(1, Number.parseInt(query.limit, 10) || 5));
+      const recent = {};
+      for (const id of new Set(ids)) recent[id] = repo.recentSessions(id, exclude, limit);
+      return { recent };
     });
 
     // ---- sessions
@@ -419,6 +440,15 @@ function text(value, name, { max = 200, required = false } = {}) {
   if (out.length > max) throw new HttpError(400, `${name} is too long (max ${max})`);
   if (CONTROL.test(out)) throw new HttpError(400, `${name} contains control characters`);
   return out;
+}
+
+function videoUrl(value) {
+  const out = text(value, 'video_url', { max: 500 });
+  if (!out) return '';
+  let url;
+  try { url = new URL(out); } catch { throw new HttpError(400, 'video_url must be a link'); }
+  if (url.protocol !== 'https:') throw new HttpError(400, 'video_url must start with https://');
+  return url.href;
 }
 
 function oneOf(value, list, name) {
@@ -649,6 +679,7 @@ function workoutRepo(db) {
   const exRow = (row) => row && ({
     id: Number(row.id), name: row.name, muscle: row.muscle, equipment: row.equipment, kind: row.kind,
     custom: Boolean(row.custom), times: Number(row.times || 0), last_used: row.last_used || null,
+    video_url: row.video_url || '',
   });
 
   const exList = db.prepare(`
@@ -661,7 +692,7 @@ function workoutRepo(db) {
   const exGet = db.prepare('SELECT * FROM workout_exercises WHERE id = ?');
   const exByName = db.prepare('SELECT * FROM workout_exercises WHERE name = ? COLLATE NOCASE');
   const exInsert = db.prepare('INSERT INTO workout_exercises (name, muscle, equipment, kind, custom, created_at) VALUES (?, ?, ?, ?, 1, ?)');
-  const exUpdate = db.prepare('UPDATE workout_exercises SET name = ?, muscle = ?, equipment = ?, kind = ? WHERE id = ?');
+  const exUpdate = db.prepare('UPDATE workout_exercises SET name = ?, muscle = ?, equipment = ?, kind = ?, video_url = ? WHERE id = ?');
   const exDelete = db.prepare('DELETE FROM workout_exercises WHERE id = ?');
   const exUsed = db.prepare('SELECT COUNT(DISTINCT session_id) AS n FROM workout_entries WHERE exercise_id = ?');
 
@@ -822,7 +853,7 @@ function workoutRepo(db) {
       return exercise(Number(info.lastInsertRowid));
     },
     updateExercise(ex) {
-      exUpdate.run(ex.name, ex.muscle, ex.equipment, ex.kind, ex.id);
+      exUpdate.run(ex.name, ex.muscle, ex.equipment, ex.kind, ex.video_url || '', ex.id);
       return exercise(ex.id);
     },
     deleteExercise: (id) => exDelete.run(id),
@@ -841,6 +872,11 @@ function workoutRepo(db) {
         cur.sets.push(setRow(row));
       }
       return out;
+    },
+    // The last `limit` workouts with this exercise (newest first), skipping one session (the
+    // workout being edited), for the logger's history line and weight suggestion.
+    recentSessions(exerciseId, excludeSession, limit) {
+      return this.exerciseHistory(exerciseId).filter((s) => s.id !== excludeSession).slice(0, limit);
     },
     previousSets(exerciseId, excludeSession) {
       const hit = lastSessionWith.get(exerciseId, excludeSession || 0);

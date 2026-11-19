@@ -190,7 +190,14 @@
   font-size: 22px; font-weight: 700; color: var(--text);
 }
 .app-workout .wo-title-input::placeholder { color: var(--muted); }
-.app-workout .wo-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 14px; }
+/* Duration · Volume · Sets stays pinned under the nav bar while the exercises scroll under it. */
+.app-workout .wo-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  position: sticky; top: var(--nav-h); z-index: 6;
+  margin: 4px calc(-16px - var(--sar)) 14px calc(-16px - var(--sal));
+  padding: 8px calc(16px + var(--sar)) 8px calc(16px + var(--sal));
+  background: var(--bg); box-shadow: 0 1px 0 var(--hair);
+}
 .app-workout .wo-log-empty { text-align: center; padding: 28px 12px 8px; }
 .app-workout .wo-log-empty-title { font-weight: 600; font-size: 17px; margin-bottom: 4px; }
 
@@ -209,7 +216,39 @@
   display: inline-flex; align-items: center; gap: 5px; min-height: 36px; color: var(--wo); font-size: 15px; font-weight: 500;
 }
 
+/* Form video, weight suggestion, history line */
+.app-workout .wo-ex-video {
+  flex: 0 0 44px; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; color: var(--wo);
+}
+.app-workout .wo-insight { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 4px; }
+.app-workout .wo-suggest {
+  display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 10px; border-radius: 10px; background: var(--fill);
+}
+.app-workout .wo-suggest-text { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+.app-workout .wo-suggest-k { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.app-workout .wo-suggest-v { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.app-workout .wo-suggest-why { flex-basis: 100%; font-size: 14px; line-height: 1.35; color: var(--muted); margin-top: 2px; }
+.app-workout .wo-suggest-use { flex: none; min-width: 60px; min-height: 44px; border-radius: 10px; background: var(--wo); color: #fff; font-weight: 600; }
+.app-workout .wo-suggest-empty { font-size: 14px; color: var(--muted); padding: 2px 0; }
+.app-workout .wo-hist-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; text-align: left; font-size: 15px; color: var(--text);
+}
+.app-workout .wo-hist-k { flex: none; font-weight: 600; }
+.app-workout .wo-hist-sum { flex: 1 1 auto; min-width: 0; font-size: 14px; line-height: 1.35; color: var(--muted); font-variant-numeric: tabular-nums; }
+.app-workout .wo-hist-toggle .icon { flex: none; color: var(--grey); }
+.app-workout .wo-hist-list { list-style: none; margin: -2px 0 6px; padding: 0; }
+.app-workout .wo-hist-list li { display: flex; gap: 12px; align-items: baseline; padding: 4px 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.app-workout .wo-hist-date { flex: 0 0 56px; color: var(--muted); }
+.app-workout .wo-hist-sets { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+
 .app-workout .wo-grid-1 { grid-template-columns: 34px minmax(0, 1fr) 76px 44px; }
+.app-workout .wo-grid-1.has-timer { grid-template-columns: 34px minmax(0, 1fr) 70px 44px 44px; }
+.app-workout .wo-head-timer { text-align: center; }
+.app-workout .wo-timer-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+.app-workout .wo-timer-btn .icon {
+  width: 30px; height: 30px; padding: 7px; box-sizing: border-box; border-radius: 8px; background: var(--wo-input); color: var(--wo);
+}
+.app-workout .wo-timer-btn.running .icon { background: var(--wo); color: #fff; }
 .app-workout .wo-grid-2 { grid-template-columns: 34px minmax(0, 1fr) 64px 56px 44px; }
 .app-workout .wo-grid-1.no-check { grid-template-columns: 34px minmax(0, 1fr) 76px; }
 .app-workout .wo-grid-2.no-check { grid-template-columns: 34px minmax(0, 1fr) 70px 64px; }
@@ -262,9 +301,13 @@
 .app-workout .wo-rest-track { height: 4px; margin: 0 calc(-12px - var(--sar)) 0 calc(-12px - var(--sal)); background: var(--track); }
 .app-workout .wo-rest-fill { height: 100%; background: var(--wo); transition: width 0.25s linear; }
 .app-workout .wo-rest-row { display: flex; align-items: center; gap: 8px; max-width: 600px; margin: 6px auto 0; }
-.app-workout .wo-rest-time { flex: 1 1 auto; text-align: center; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.app-workout .wo-rest-btn { min-width: 56px; min-height: 44px; border-radius: 10px; background: var(--fill); font-weight: 600; font-variant-numeric: tabular-nums; }
+.app-workout .wo-rest-clock { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.app-workout .wo-rest-label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.app-workout .wo-rest-time { text-align: center; font-size: 24px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.app-workout .wo-rest-btn { min-width: 56px; min-height: 44px; padding: 0 10px; border-radius: 10px; background: var(--fill); font-weight: 600; font-variant-numeric: tabular-nums; }
+.app-workout .wo-rest-btn[hidden] { display: none; }
 .app-workout .wo-rest-skip { background: var(--wo); color: #fff; }
+.app-workout .wo-rest-done { background: var(--green); color: #fff; }
 
 /* Workout detail */
 .app-workout .wo-done-card { padding: 14px; margin-bottom: 8px; text-align: center; }
@@ -292,6 +335,15 @@
 .app-workout .wo-hist-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; min-height: 40px; padding-top: 6px; }
 .app-workout .wo-hist-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-workout .wo-ex-meta { margin-bottom: 12px; }
+.app-workout .wo-video-row {
+  display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 12px 8px 14px; margin-bottom: 16px;
+  color: var(--text); text-decoration: none;
+}
+.app-workout .wo-video-row > .icon:first-child { color: var(--wo); flex: none; }
+.app-workout .wo-video-row > .icon:last-child { color: var(--grey); flex: none; margin-left: auto; }
+.app-workout .wo-video-text { display: flex; flex-direction: column; min-width: 0; }
+.app-workout .wo-video-title { font-weight: 600; }
+.app-workout .wo-video-sub { font-size: 13px; }
 
 .app-workout .wo-set-label, .app-workout .wo-check, .app-workout .wo-add-set, .app-workout .wo-rest-btn, .app-workout .wo-prev {
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;

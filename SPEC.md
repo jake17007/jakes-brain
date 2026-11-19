@@ -128,7 +128,9 @@ web/
 - **Offline banner + backoff** (from v1) stays and is global.
 - **Native bridge** (from v1): `window.JakesData = { native, version }` and
   `window.webkit?.messageHandlers?.native?.postMessage({type:'haptic', style})` — only via
-  `kit.haptic()`.
+  `kit.haptic()`. App 1.5 adds `canTimer: true` and `{type:'timer', action:'start'|'finish'|'stop',
+  end, label, title, body}` for the Workout rest/hold timer (only via `nativeTimer` in
+  `web/apps/workout/lib.js`; see `ios/JakesData/WorkoutTimer.swift`).
 - **Confirm dialogs:** never `window.confirm`/`alert`/`prompt` (the shell has no WKUIDelegate —
   they silently return false). Use `kit.confirmSheet(...)`.
 - Design rules: system font stack, light + dark via `prefers-color-scheme`, solid colours only,
@@ -441,6 +443,27 @@ database, untouched). The native recorder (`ios/JakesData/VoiceRecorder.swift`) 
   cards) · Exercises (library). The logger (`#/workout/active`) has a set table per exercise
   (SET · PREVIOUS · weight/reps/time/distance · check), set types (warm-up, drop, failure), a rest
   timer bar, Finish → saved workout with new records. Workouts can be edited, repeated, saved as routines.
+- Logger additions (2026-11-19, Jake's "To update in workout app" note):
+  - Duration · Volume · Sets is `position: sticky` under the nav bar, so the time stays visible.
+  - Each exercise card has a video button: the exercise's `video_url` (migration `workout-4`, set
+    from "Form Video Link" in the exercise menu or the exercise page, https only, any exercise
+    including built-ins) or else a YouTube search for "<name> proper form" (target=_blank).
+  - History line from `GET /api/workout/recent` (last 5 workouts, warm-ups left out): a computed
+    one-line trend ("Top set 125 lb → 135 lb over 3 workouts · best est. 1RM 171 lb"), tap to list
+    each workout's sets. Not an LLM summary.
+  - Weight & reps exercises in an active workout show "Suggested 140 lb × 8" with the reason and a
+    Use button that fills every normal set not yet checked off. Rule (`suggestNext` in lib.js): with a
+    rep range in the prescription ("8–12 reps", "3 × 8–12", "3x10"), all sets at the top weight
+    reached the top → add a step at the bottom of the range; under the bottom two workouts running
+    → about −10%; else same weight, +1 rep. Without a range: every set at the top weight matched the
+    first set's reps → add a step, else stay. Steps (lb/kg): barbell and machine 5/2.5 (legs 10/5),
+    dumbbell 5/2, kettlebell 9/4, other 5/2.5.
+  - Time exercises get a Timer column: play counts down the set's time (else the previous time,
+    else a 15 s–2 min choice), then logs it, checks the set and starts the rest. The bottom bar
+    shows Hold with Cancel / Done (Done = log the time held so far). `draft.hold` keeps it across reloads.
+  - Rest and hold timers ding at the end: Web Audio in a browser; in the iPhone app (1.5+) the
+    notification sound instead. The app also keeps the countdown on the lock screen and in the
+    Dynamic Island (Live Activity, `ios/RestTimer` widget extension) and notifies when it ends.
 - Routines also preserve instructions, optional weekdays, source IDs/links and exact exercise
   prescriptions independently from numeric set targets. Ranges, alternatives and circuit instructions
   stay readable when logging. Only checked sets become recorded workout results.

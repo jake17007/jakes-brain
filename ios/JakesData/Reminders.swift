@@ -83,7 +83,8 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         let wanted = Dictionary(uniqueKeysWithValues: items.map { ("\($0.id)@\($0.due_at)", $0) })
         let pending = await center.pendingNotificationRequests()
         var scheduled = Set<String>()
-        for request in pending {
+        // The Workout timer's notifications are not reminders; WorkoutTimer owns them.
+        for request in pending where !request.identifier.hasPrefix(WorkoutTimer.notificationPrefix) {
             if wanted[request.identifier] == nil {
                 center.removePendingNotificationRequests(withIdentifiers: [request.identifier])
             } else {
@@ -108,18 +109,25 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         UserDefaults.standard.set(Array(fired.suffix(500)), forKey: Self.firedKey)
     }
 
-    private func openReminders() {
-        webView?.evaluateJavaScript("location.hash = '#/reminders'") { _, _ in }
+    private func open(_ hash: String) {
+        webView?.evaluateJavaScript("location.hash = '\(hash)'") { _, _ in }
+    }
+
+    private nonisolated static func isWorkoutTimer(_ notification: UNNotification) -> Bool {
+        notification.request.identifier.hasPrefix("workout.timer.")
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .list, .sound])
+        // A rest/hold timer ending while the app is open: ding and show it, but keep it out of
+        // Notification Center (the workout screen already says so).
+        completionHandler(Self.isWorkoutTimer(notification) ? [.banner, .sound] : [.banner, .list, .sound])
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
-        Task { @MainActor in ReminderScheduler.shared.openReminders() }
+        let hash = Self.isWorkoutTimer(response.notification) ? "#/workout/active" : "#/reminders"
+        Task { @MainActor in ReminderScheduler.shared.open(hash) }
         completionHandler()
     }
 }

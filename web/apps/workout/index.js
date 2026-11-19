@@ -16,7 +16,7 @@ import { programView } from './program.js';
 import {
   getUnits, setUnits, loadUnits, fmtVolume, fmtLong, fmtClock, fmtWeight, fmtDist, distUnit, setText, setLabels,
   e1rm, PR_LABELS, prValue, loadLibrary, cachedLibrary, MUSCLES, EQUIPMENT, KIND_LABELS,
-  readActive, writeActive, clearActive, syncActive,
+  readActive, writeActive, clearActive, syncActive, formVideoUrl, editVideoLink,
 } from './lib.js';
 
 const { api, el, fmt, toast, haptic, navbar, navButton, section, emptyState, icon, confirmSheet, actionSheet, nav, store } = kit;
@@ -545,42 +545,59 @@ async function exerciseView(id, alive) {
   if (!alive()) return;
   const { exercise: ex, sessions, records } = data;
   bar.setTitle(ex.name);
+  // The library cache feeds formVideoUrl; keep it in step with this fresh copy.
+  await loadLibrary().catch(() => {});
+  if (!alive()) return;
+  const cached = cachedLibrary().find((e) => e.id === ex.id);
+  if (cached) cached.video_url = ex.video_url || '';
 
-  if (ex.custom) {
-    more.hidden = false;
-    more.addEventListener('click', async () => {
-      const choice = await actionSheet({ title: ex.name, actions: [{ label: 'Edit Exercise', value: 'edit' }, { label: 'Delete Exercise', value: 'delete', destructive: true }] });
-      if (choice === 'edit') {
-        const fields = [
-          { key: 'name', label: 'Name', value: ex.name, required: true },
-          { key: 'muscle', label: 'Muscle group', type: 'select', value: ex.muscle, options: MUSCLES.map((m) => ({ value: m, label: m })) },
-          { key: 'equipment', label: 'Equipment', type: 'select', value: ex.equipment, options: EQUIPMENT.map((m) => ({ value: m, label: m })) },
-        ];
-        if (!sessions.length) fields.push({ key: 'kind', label: 'Tracks', type: 'select', value: ex.kind, options: Object.entries(KIND_LABELS).map(([value, label]) => ({ value, label })) });
-        const result = await formSheet({ title: 'Edit exercise', fields });
-        if (!result || result === 'delete') return;
-        try {
-          await api(`/api/workout/exercises/${id}`, { method: 'PATCH', body: result });
-          await loadLibrary(true);
-          show(currentSub);
-        } catch (err) {
-          toast(errText(err, 'save'), { kind: 'error' });
-        }
+  more.hidden = false;
+  more.addEventListener('click', async () => {
+    const actions = [{ label: 'Form Video Link', value: 'video' }];
+    if (ex.custom) actions.push({ label: 'Edit Exercise', value: 'edit' }, { label: 'Delete Exercise', value: 'delete', destructive: true });
+    const choice = await actionSheet({ title: ex.name, actions });
+    if (choice === 'video') {
+      if (await editVideoLink(ex.id, ex.name)) show(currentSub);
+      return;
+    }
+    if (choice === 'edit') {
+      const fields = [
+        { key: 'name', label: 'Name', value: ex.name, required: true },
+        { key: 'muscle', label: 'Muscle group', type: 'select', value: ex.muscle, options: MUSCLES.map((m) => ({ value: m, label: m })) },
+        { key: 'equipment', label: 'Equipment', type: 'select', value: ex.equipment, options: EQUIPMENT.map((m) => ({ value: m, label: m })) },
+      ];
+      if (!sessions.length) fields.push({ key: 'kind', label: 'Tracks', type: 'select', value: ex.kind, options: Object.entries(KIND_LABELS).map(([value, label]) => ({ value, label })) });
+      const result = await formSheet({ title: 'Edit exercise', fields });
+      if (!result || result === 'delete') return;
+      try {
+        await api(`/api/workout/exercises/${id}`, { method: 'PATCH', body: result });
+        await loadLibrary(true);
+        show(currentSub);
+      } catch (err) {
+        toast(errText(err, 'save'), { kind: 'error' });
       }
-      if (choice === 'delete') {
-        if (!(await confirmSheet({ title: `Delete ${ex.name}?`, confirmLabel: 'Delete', destructive: true }))) return;
-        try {
-          await api(`/api/workout/exercises/${id}`, { method: 'DELETE' });
-          await loadLibrary(true);
-          ctx.nav.back();
-        } catch (err) {
-          toast(errText(err, 'delete'), { kind: 'error' });
-        }
+    }
+    if (choice === 'delete') {
+      if (!(await confirmSheet({ title: `Delete ${ex.name}?`, confirmLabel: 'Delete', destructive: true }))) return;
+      try {
+        await api(`/api/workout/exercises/${id}`, { method: 'DELETE' });
+        await loadLibrary(true);
+        ctx.nav.back();
+      } catch (err) {
+        toast(errText(err, 'delete'), { kind: 'error' });
       }
-    });
-  }
+    }
+  });
 
-  const out = [el('div', { class: 'muted wo-ex-meta', text: `${ex.muscle} · ${ex.equipment} · ${KIND_LABELS[ex.kind]}` })];
+  const out = [
+    el('div', { class: 'muted wo-ex-meta', text: `${ex.muscle} · ${ex.equipment} · ${KIND_LABELS[ex.kind]}` }),
+    el('a', { class: 'card wo-video-row', href: formVideoUrl(ex.id, ex.name), target: '_blank', rel: 'noopener noreferrer' },
+      icon('video', { size: 22 }),
+      el('span', { class: 'wo-video-text' },
+        el('span', { class: 'wo-video-title', text: 'Form video' }),
+        el('span', { class: 'muted wo-video-sub', text: ex.video_url ? 'Your saved video' : 'Searches YouTube · set your own link in the menu' })),
+      icon('chevron-right', { size: 18 })),
+  ];
   if (!sessions.length) {
     out.push(emptyState('No sets logged yet. Add it to a workout and its progress shows here.'));
     content.replaceChildren(...out);
