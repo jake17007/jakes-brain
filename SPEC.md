@@ -76,6 +76,7 @@ playback and photo/camera pickers enabled.
 | `jakegpt` | JakeGPT | #10a37f | private ChatGPT on the PC's Ollama (streaming), conversations saved |
 | `habits` | Habits | #ff9f0a | daily habits, streaks, 7-day strip |
 | `goals` | Goals | #6d28d9 | long-term goals: why, area, target date, milestones, check-ins, progress |
+| `finances` | Finances | #047857 | net worth + chart, cash, credit-card debt, crypto, accounts and transactions from SimpleFIN Bridge (read-only) |
 | `files` | Files | #0a84ff | read-only browser of PC folders with image/video/text preview |
 | `weather` | Weather | #32ade6 | Open-Meteo forecast for a city set in Weather/Settings |
 | `server` | Server | #34c759 | the v1 Home screen: PC stats + one row per service |
@@ -481,6 +482,35 @@ database, untouched). The native recorder (`ios/JakesData/VoiceRecorder.swift`) 
   milestone or "x of y", and an amber nudge when an active goal has had no check-in for 30 days.
   Goal page `#/goals/<id>`: progress, why, milestones (tap circle = done, tap text = edit, inline add),
   Check in (note + number + date), check-in history (tap = delete), Achieved / Pause / Drop.
+
+### finances  (added 2026-11-19 — "a net worth tracker … like Monarch")
+- Tile: id `finances`, label "Finances", colour #047857, glyph = rising line. Grid: right after Goals.
+- Data source: SimpleFIN Bridge (bridge.simplefin.org, ~$15/yr), which reads Chase, Wells Fargo,
+  Coinbase and most US institutions. Read-only; nothing in the app can move money.
+- Connecting: the app's Connect form takes a SimpleFIN setup token (or an access URL). The server
+  claims it once and keeps the access URL in `DATA/finances/simplefin` (mode 600). It is never stored in
+  the database, returned by a route or logged. Only `*.simplefin.org` hosts are accepted.
+  `POST/DELETE /api/finances/connect` are in the connector's DENY list: Claude can read finances but
+  never sets or replaces the bank connection.
+- Sync: 20 s after start and every 4 hours, plus the refresh button (at most every 10 minutes;
+  SimpleFIN allows ~24 pulls a day). First pull asks for 40 days of transactions, later pulls the days
+  since the last success plus 5. Bridge warnings (e.g. a bank needing re-login) show as notes.
+- Tables (migration `finances-1`): `finances_accounts` (id = sha1(org id + account id)[:16]; balance,
+  available, balance_date, holdings_value, type_override, hidden, nickname), `finances_balances`
+  (one row per account per day), `finances_transactions` (PK account_id + id; pending rows in the
+  pulled window are replaced each pull), `finances_sync` (last attempt / success / error, messages).
+- Types: cash, credit, investment, crypto, loan, other. Automatic from the institution and account
+  name (Coinbase → crypto, "card"/"Freedom"/"Active Cash" → credit, "checking"/"savings" → cash);
+  the account page can override it, rename the account, or hide it from net worth.
+- Net worth = sum of visible balances (SimpleFIN sign: owed is negative). Totals show cash, credit-card
+  debt and crypto always, investments/loans/other when non-zero.
+- History: one snapshot per account per day; days without a pull carry the balance forward, days
+  before an account's first snapshot use its first balance. When a cash/credit/loan account first
+  appears, its past ~40 days are rebuilt from its settled transactions; investments and crypto start flat.
+- UI: home = net worth, change over the chosen range (1M / 3M / 1Y / All) and a scrubbable chart,
+  totals, accounts grouped by type, recent transactions; `#/finances/a/<id>` = one account (chart,
+  details, transactions, options); `#/finances/transactions` = everything, Load More.
+- Routes are listed in the header of `server/apps/finances.js`.
 
 ### connector  (added 2026-11-02 — "Claude should update my app like it updates Notion")
 - `server/apps/connector.js`: a remote MCP server (Streamable HTTP, stateless, JSON responses) on a

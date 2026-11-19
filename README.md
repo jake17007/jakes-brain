@@ -28,6 +28,7 @@ The first screen is a home screen: a grid of tiles plus a dock. Each tile is one
 | JakeGPT | private ChatGPT on the PC's Ollama, streaming, conversations saved |
 | Habits | daily check-ins, streaks, 7-day strip |
 | Goals | long-term goals with a why, target date, milestones, check-ins and progress; Claude can check in for you |
+| Finances | net worth over time, cash, credit-card debt and crypto from SimpleFIN Bridge (Chase, Wells Fargo, Coinbase), with transactions; read-only |
 | Files | read-only browser of PC folders with previews |
 | Weather | Open-Meteo forecast for a chosen city |
 | Reminders | timed reminders that pop up as iPhone notifications, even with the app closed |

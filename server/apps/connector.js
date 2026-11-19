@@ -48,8 +48,9 @@ const APPS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SPEC_FILE = path.join(APPS_DIR, '..', '..', 'SPEC.md');
 const APP_ORIGIN = `http://127.0.0.1:${MAIN_PORT}`;
 const WRITE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
-// Stays out of the connector entirely: who may sign in is decided on the private app only.
-const DENY = /^\/api\/connector(\/|$)/;
+// Stays out of the connector entirely: who may sign in is decided on the private app only, and
+// the bank connection (SimpleFIN credentials) is pasted in the Finances app, never through Claude.
+const DENY = /^\/api\/(connector|finances\/connect)(\/|$)/;
 // The Zora bot trades real money, so nothing that writes under here ever goes through Claude.
 const READ_ONLY = /^\/api\/bots(\/|$)/;
 // Raw file bodies, which a JSON tool call can't carry.
