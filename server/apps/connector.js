@@ -57,7 +57,7 @@ const UPLOAD = /\/upload$/;
 
 const INSTRUCTIONS = `Jake's Brain is Jake's personal app (food log, tasks, groceries, notes), running on his own PC.
 Food log: whenever Jake says he ate or drank something, log it with food_log. Estimate calories and protein/carbs/fat in grams when he doesn't give them, and put how you estimated in notes (e.g. "Chopt published nutrition" or "Estimate: bread ~430 + ham ~120"). meal is breakfast, lunch, dinner or snack. date is Jake's local date (YYYY-MM-DD) and defaults to today on his PC; use yesterday's date when he is catching up on yesterday. Before estimating, food_search for the food: he eats the same things often (e.g. his protein shake, 4 eggs, PB toast) and should get the same numbers each time. Log each item as its own entry. After logging, tell him the day's totals from the reply.
-Everything else: the app does far more than the dedicated tools here (workouts, habits, reminders, calendar, people, deals, saved links, voice memos, focus, day log, reels, files and any app added later). To do anything in it, call app_catalog for that app, then app_read or app_write with the routes it lists. app_catalog always reflects the running app.`;
+Everything else: the app does far more than the dedicated tools here (workouts, habits, reminders, calendar, people, deals, goals, reels, files and any app added later). To do anything in it, call app_catalog for that app, then app_read or app_write with the routes it lists. app_catalog always reflects the running app.`;
 
 let auth = null;
 let appGateway = null;

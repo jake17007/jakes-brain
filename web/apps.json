@@ -15,17 +15,11 @@
     "food",
     "habits",
     "goals",
-    "period",
     "weather",
     "files",
     "reels",
     "deals",
     "people",
-    "saved",
-    "voice",
-    "focus",
-    "daylog",
-    "bots",
     "server",
     "settings"
   ],
@@ -92,26 +86,6 @@
       "label": "People",
       "color": "#ac8e68"
     },
-    "saved": {
-      "label": "Saved",
-      "color": "#ff6b35"
-    },
-    "voice": {
-      "label": "Voice Memos",
-      "color": "#ff453a"
-    },
-    "focus": {
-      "label": "Focus",
-      "color": "#64748b"
-    },
-    "daylog": {
-      "label": "Day Log",
-      "color": "#00a5a8"
-    },
-    "bots": {
-      "label": "Bots",
-      "color": "#3a3a3c"
-    },
     "reminders": {
       "label": "Reminders",
       "color": "#c2410c",
@@ -130,10 +104,6 @@
     "food": {
       "label": "Food",
       "color": "#ca8a04"
-    },
-    "period": {
-      "label": "Period",
-      "color": "#ff375f"
     },
     "goals": {
       "label": "Goals",

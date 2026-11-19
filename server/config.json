@@ -101,16 +101,5 @@
   "tracker": {
     "url": "http://127.0.0.1:3000",
     "username": "jakebeau_"
-  },
-  "bots": {
-    "zoraState": "~/zora-bot/live/state",
-    "feedDir": "~/feed-accounts"
-  },
-  "daylog": {
-    "root": "~/Videos/pocket3-vlog/vlogs"
-  },
-  "voice": {
-    "python": "~/pocket3-vlog/.venv/bin/python",
-    "model": "small.en"
   }
 }

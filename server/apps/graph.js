@@ -14,7 +14,6 @@
 // Caps: at most 2000 nodes. Over that, the oldest day clusters (the day hub + the items whose
 // day it is) are dropped first and `truncated` is true.
 import { cached } from './_lib.js';
-import { readLogs } from './daylog.js';
 import { HttpError } from '../http.js';
 
 const CACHE_MS = 30_000;
@@ -53,23 +52,20 @@ export default {
   register(r, ctx) {
     let cache = null; // { at, data }
 
-    const root = ctx.expandHome(ctx.cfg.daylog?.root || '~/Videos/pocket3-vlog/vlogs');
     const base = String(ctx.cfg.tracker?.url || 'http://127.0.0.1:3000').replace(/\/$/, '');
     const username = ctx.cfg.tracker?.username || 'jakebeau_';
-    let lastExternal = { reels: [], ideas: [], hooks: [], logs: [] };
+    let lastExternal = { reels: [], ideas: [], hooks: [] };
     const external = cached(EXTERNAL_MS, async () => {
       const get = (path) => ctx.tools.fetchJson(`${base}${path}`, { timeout: 6000 });
-      const logs = await readLogs(root).catch(() => []);
       try {
         const creators = await get('/api/creators');
         const me = (Array.isArray(creators) ? creators : creators.creators || []).find((c) => c.username === username);
         const [reels, ideas, makers] = await Promise.all([
           me ? get(`/api/reels?creator=${me.id}`) : [], get('/api/proposed-reels'), get('/api/hook-makers?limit=60'),
         ]);
-        lastExternal = { reels: Array.isArray(reels) ? reels : [], ideas: ideas.items || [], hooks: (makers.items || []).flatMap((m) => m.proposals || []), logs };
+        lastExternal = { reels: Array.isArray(reels) ? reels : [], ideas: ideas.items || [], hooks: (makers.items || []).flatMap((m) => m.proposals || []) };
       } catch (err) {
         ctx.log.warn(`graph: reels tracker unavailable: ${err?.message || err}`);
-        lastExternal = { ...lastExternal, logs };
       }
       return lastExternal;
     });
@@ -249,7 +245,7 @@ export function buildGraph({ db, log, external = {} }) {
   });
 
   // #tags
-  // Added apps: deals, people, saved links, focus sessions.
+  // Added apps: deals, people, reminders.
   const peopleByHandle = new Map();
   from('people', () => {
     for (const row of db.prepare('SELECT id, name, handle, role, notes FROM people').all()) {
@@ -267,15 +263,6 @@ export function buildGraph({ db, log, external = {} }) {
       tagged.push([id, `${row.deliverables}\n${row.notes}`]);
     }
   });
-  from('saved_links', () => {
-    for (const row of db.prepare('SELECT id, title, site, created_at FROM saved_links').all()) {
-      const id = `link:${row.id}`;
-      const day = localDay(row.created_at);
-      addNode({ id, type: 'link', label: trimLabel(clean(row.title)), app: 'saved', route: `#/saved/${row.id}`, date: day, meta: { site: row.site } });
-      linkDay(id, day);
-      tagged.push([id, String(row.title)]);
-    }
-  });
   from('reminders', () => {
     for (const row of db.prepare('SELECT id, title, due_at, done FROM reminders').all()) {
       const id = `reminder:${row.id}`;
@@ -285,16 +272,7 @@ export function buildGraph({ db, log, external = {} }) {
       tagged.push([id, String(row.title)]);
     }
   });
-  from('focus_sessions', () => {
-    for (const row of db.prepare('SELECT id, label, minutes, started_at FROM focus_sessions').all()) {
-      const id = `focus:${row.id}`;
-      const day = localDay(row.started_at);
-      addNode({ id, type: 'focus', label: trimLabel(clean(row.label) || `Focus ${Math.round(row.minutes)}m`), app: 'focus', route: '#/focus', date: day, meta: {} });
-      linkDay(id, day);
-      tagged.push([id, String(row.label || '')]);
-    }
-  });
-  // Reels, reel ideas, hooks and day logs join the graph through the topics they share.
+  // Reels, reel ideas and hooks join the graph through the topics they share.
   const topicTexts = tagged.map(([nodeId, text]) => [nodeId, String(text)]);
   const vocab = new Map();           // slug -> { label, uses }
   const countTopic = (raw) => {
@@ -337,13 +315,6 @@ export function buildGraph({ db, log, external = {} }) {
       if (!nodes.has(maker)) addNode({ id: maker, type: 'hook', label: trimLabel(clean(hook.maker_name) || 'Hook maker'), app: 'reels', route: '#/reels', date: hook.batch_date || null, meta: { maker: true } });
       addEdge(id, maker, 'link');
     }
-  }
-  for (const day of external.logs || []) {
-    const id = ensureDay(day.date);
-    const node = nodes.get(id);
-    node.route = `#/daylog/${day.date}`;
-    node.app = 'daylog';
-    topicTexts.push([id, day.blocks.map((block) => block.text).join(' ')]);
   }
   for (const [handle, reels] of handles) {
     if (reels.length < 2) continue;

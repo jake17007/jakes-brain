@@ -75,7 +75,6 @@ playback and photo/camera pickers enabled.
 | `jaketube` | JakeTube | #e62117 | YouTube feed of jvscholz, sentdex and Tina Huang (newest uploads, played in the app) |
 | `jakegpt` | JakeGPT | #10a37f | private ChatGPT on the PC's Ollama (streaming), conversations saved |
 | `habits` | Habits | #ff9f0a | daily habits, streaks, 7-day strip |
-| `period` | Period | #ff375f | cycle tracker: flow + symptoms per day, predicted next period, fertile window |
 | `goals` | Goals | #6d28d9 | long-term goals: why, area, target date, milestones, check-ins, progress |
 | `files` | Files | #0a84ff | read-only browser of PC folders with image/video/text preview |
 | `weather` | Weather | #32ade6 | Open-Meteo forecast for a city set in Weather/Settings |
@@ -306,7 +305,7 @@ without media work). All inputs validated (400), missing rows 404.
   `Referrer-Policy: same-origin` and the embed will not play without a referrer), title, meta,
   "Open in YouTube" (target=_blank: the iOS shell hands it to the YouTube app), the
   description (4 lines, Show more), then more from the same channel. holdReload while open.
-- PC files: still served for the Day Log "Watch this vlog" button and Graph video nodes, which
+- PC files: still served for Graph video nodes, which
   open `#/jaketube/watch/<id>` (the old player, now without Up next); the home no longer lists them.
   Table `tube_videos(id TEXT PRIMARY KEY /* sha1(realpath) first 16 */, channel, path /* realpath */, name, size, mtime, duration REAL|NULL, width, height, thumb TEXT|NULL, probed_at)`,
   `tube_progress(video_id PRIMARY KEY, seconds REAL, duration REAL, updated_at)`.
@@ -414,11 +413,10 @@ without media work). All inputs validated (400), missing rows 404.
 - Empty state: "Nothing to connect yet — add some notes, tasks or posts." when < 2 nodes.
 
 ### Added apps (2026-11-02)
-`reels`, `deals`, `people`, `saved`, `voice`, `focus`, `daylog`, `bots`. Each module's header
-comment lists its routes. `reels`, `daylog` and `bots` are read-only views of other PC data, and
-`bots` must never gain a control: the Zora bot trades real money. Shared edit form: `web/form.js`.
-Voice recording lives in the native shell (`ios/JakesData/VoiceRecorder.swift`) because a page on
-plain http cannot reach the microphone; the shell sets `window.JakesData.canRecord`.
+`reels`, `deals`, `people`. Each module's header comment lists its routes. `reels` is a
+read-only view of other PC data. Shared edit form: `web/form.js`.
+Removed 2026-11-19: `period`, `saved`, `voice`, `focus`, `daylog`, `bots` (their tables stay in the
+database, untouched). The native recorder (`ios/JakesData/VoiceRecorder.swift`) is now unused.
 
 ### grocery  (added 2026-11-02)
 - Tile: id `grocery`, label "Groceries", colour #65a30d, glyph = shopping cart, badge = items still needed.
