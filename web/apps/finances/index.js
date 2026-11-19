@@ -394,11 +394,8 @@ function runwayCard() {
   return el('section', { class: 'card fn-runway' },
     el('div', { class: 'fn-label', text: 'Runway' }),
     el('div', { class: `fn-runway-big${r.months < 3 ? ' fn-neg' : ''}`, text: monthsText(r.months) }),
-    el('div', { class: 'fn-runway-line', text: `${money(r.liquid, { cents: false })} cash after card debt ÷ ${money(r.monthly_spending, { cents: false })}/month spending` }),
-    r.available_credit > 0 && r.months_with_credit !== null
-      ? el('div', { class: 'fn-runway-line', text: `${monthsText(r.months_with_credit)} counting ${money(r.available_credit, { cents: false })} available credit` })
-      : null,
-    el('div', { class: 'fn-runway-note', text: `Spending from your last ${r.days} days, not counting transfers between your accounts. Income not included.` }));
+    el('div', { class: 'fn-runway-line', text: `${money(r.cash, { cents: false })} cash + ${money(r.available_credit, { cents: false })} available credit ÷ ${money(r.monthly_spending, { cents: false })}/month spending` }),
+    el('div', { class: 'fn-runway-note', text: `${monthsText(r.months_cash_only)} on cash alone. Spending from your last ${r.days} days, not counting transfers between your accounts. Income not included.` }));
 }
 
 function goalCard() {

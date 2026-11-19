@@ -32,9 +32,9 @@
 //   balances follow SimpleFIN's sign: money owed on a card or loan is negative. `credit` and `loan`
 //   are reported as positive amounts owed. Hidden accounts count toward nothing.
 // change: { days: 30, net_worth: <delta> | null } against the closest snapshot at least 30 days old.
-// runway: { monthly_spending, days, liquid, available_credit, months, months_with_credit } | null
-//   liquid = cash - card debt; months = liquid / monthly spending (own-account transfers excluded,
-//   income ignored); months_with_credit also counts the cards' available credit.
+// runway: { monthly_spending, days, cash, available_credit, spendable, months, months_cash_only } | null
+//   spendable = cash + the cards' available credit; months = spendable / monthly spending
+//   (own-account transfers excluded, income ignored); months_cash_only leaves the credit out.
 // account: { id, name, nickname, org, type, type_auto, hidden, balance, available, currency,
 //            balance_date, holdings_value, updated_at }
 // One balance snapshot per account per day (the latest pull that day) feeds the history chart;
@@ -488,7 +488,7 @@ function financesRepo(db) {
   }
 
   // Runway: how long the money lasts at normal spending with no income.
-  //   liquid   = cash - credit-card debt;  with credit = liquid + available credit on the cards
+  //   spendable = cash + available credit on the cards (limit - owed)
   //   spending = settled outflows on cash and card accounts over the last 90 days of data, minus
   //              money moved between Jake's own accounts (an outflow matched by an inflow of the same
   //              amount on another connected account within 5 days, e.g. a card payment or a
@@ -527,11 +527,13 @@ function financesRepo(db) {
     const totalCredit = Math.round(visible
       .filter((a) => typeOf(a) === 'credit')
       .reduce((n, a) => n + (availableCredit(a) || 0), 0) * 100) / 100;
-    const liquid = Math.round((summary.cash - summary.credit) * 100) / 100;
+    // What Jake can spend: cash plus the unused credit on his cards (the card debt is already
+    // taken out of the available credit, so it is not subtracted from cash again).
+    const spendable = Math.round((summary.cash + totalCredit) * 100) / 100;
     const months = (amount) => (monthly > 0 ? Math.max(0, Math.round((amount / monthly) * 10) / 10) : null);
     return {
-      monthly_spending: monthly, days, liquid, available_credit: totalCredit,
-      months: months(liquid), months_with_credit: months(liquid + totalCredit),
+      monthly_spending: monthly, days, cash: summary.cash, available_credit: totalCredit, spendable,
+      months: months(spendable), months_cash_only: months(summary.cash),
     };
   }
 
