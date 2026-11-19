@@ -394,7 +394,7 @@ function runwayCard() {
   return el('section', { class: 'card fn-runway' },
     el('div', { class: 'fn-label', text: 'Runway' }),
     el('div', { class: `fn-runway-big${r.months < 3 ? ' fn-neg' : ''}`, text: monthsText(r.months) }),
-    el('div', { class: 'fn-runway-line', text: `${money(r.cash, { cents: false })} cash + ${money(r.available_credit, { cents: false })} available credit ÷ ${money(r.monthly_spending, { cents: false })}/month spending` }),
+    el('div', { class: 'fn-runway-line', text: `${money(r.cash, { cents: false })} cash + ${money(r.crypto, { cents: false })} crypto + ${money(r.available_credit, { cents: false })} credit ÷ ${money(r.monthly_spending, { cents: false })}/month spending` }),
     el('div', { class: 'fn-runway-note', text: `${monthsText(r.months_cash_only)} on cash alone. Spending from your last ${r.days} days, not counting transfers between your accounts. Income not included.` }));
 }
 
