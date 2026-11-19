@@ -498,6 +498,9 @@ function financesRepo(db) {
         && Math.abs(u.amount + t.amount) < 0.005 && Math.abs(Date.parse(u.posted) - at) <= 5 * DAY);
       if (match) { used.add(match); continue; }
       if (/\b(online transfer|internal transfer|transfer to (sav|chk)|to savings|from checking)\b/i.test(t.description)) continue;
+      // Card payments whose card-side credit is outside the pulled window (the purchases themselves
+      // are counted on the card), e.g. "WELLS FARGO CARD CCPYMT", "Payment to Chase card".
+      if (/\b(cc ?pymt|card ?pymt|crd ?pymt|credit crd|credit card payment|payment to [a-z ]*card)\b/i.test(t.description)) continue;
       spent -= t.amount;
     }
     if (!first) return null;
