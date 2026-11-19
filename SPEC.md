@@ -76,6 +76,7 @@ playback and photo/camera pickers enabled.
 | `jakegpt` | JakeGPT | #10a37f | private ChatGPT on the PC's Ollama (streaming), conversations saved |
 | `habits` | Habits | #ff9f0a | daily habits, streaks, 7-day strip |
 | `period` | Period | #ff375f | cycle tracker: flow + symptoms per day, predicted next period, fertile window |
+| `goals` | Goals | #6d28d9 | long-term goals: why, area, target date, milestones, check-ins, progress |
 | `files` | Files | #0a84ff | read-only browser of PC folders with image/video/text preview |
 | `weather` | Weather | #32ade6 | Open-Meteo forecast for a city set in Weather/Settings |
 | `server` | Server | #34c759 | the v1 Home screen: PC stats + one row per service |
@@ -464,6 +465,24 @@ plain http cannot reach the microphone; the shell sets `window.JakesData.canReco
 - UI: Day (‹ date ›, calories against goal + P/C/F bars, entries grouped by meal, tap to edit,
   `+` to add, "Usuals" chips) and History (30-day bar chart, averages, per-day list).
   Sub-routes `#/food/YYYY-MM-DD`, `#/food/history`. Refreshes every 30 s (Claude logs from elsewhere).
+
+### goals  (added 2026-11-19 — "a thing for tracking long term goals")
+- Tile: id `goals`, label "Goals", colour #6d28d9, glyph = flag. Grid: right after Habits.
+- Tables (migration `goals-1`): `goals(id, title, why, area, status, target_date, unit, start_value,
+  target_value, current_value, done_at, created_at, updated_at)`, `goals_milestones(id, goal_id, text,
+  done, due_date, position, done_at, created_at)`, `goals_checkins(id, goal_id, date, note, value,
+  created_at)`; children cascade on delete.
+- Areas: health, career, money, relationships, personal, other. Status: active, paused, done (Achieved),
+  dropped (kept with its history; delete is separate and final).
+- Progress: a goal with `target_value` is measured from `start_value` to `target_value` by
+  `current_value`, which follows the latest-dated check-in that has a value; otherwise milestones done /
+  total; otherwise none. A done goal is 100%.
+- Routes are listed in the header of `server/apps/goals.js`. When Jake mentions progress on a goal,
+  Claude adds a check-in (with `value` for measured goals) rather than editing `current_value`.
+- UI: list grouped Active / Paused / Achieved / Dropped with progress bar, area, time left, the next
+  milestone or "x of y", and an amber nudge when an active goal has had no check-in for 30 days.
+  Goal page `#/goals/<id>`: progress, why, milestones (tap circle = done, tap text = edit, inline add),
+  Check in (note + number + date), check-in history (tap = delete), Achieved / Pause / Drop.
 
 ### connector  (added 2026-11-02 — "Claude should update my app like it updates Notion")
 - `server/apps/connector.js`: a remote MCP server (Streamable HTTP, stateless, JSON responses) on a

@@ -27,6 +27,7 @@ The first screen is a home screen: a grid of tiles plus a dock. Each tile is one
 | JakeTube | YouTube feed of jvscholz, sentdex and Tina Huang (newest uploads, played in the app) |
 | JakeGPT | private ChatGPT on the PC's Ollama, streaming, conversations saved |
 | Habits | daily check-ins, streaks, 7-day strip |
+| Goals | long-term goals with a why, target date, milestones, check-ins and progress; Claude can check in for you |
 | Files | read-only browser of PC folders with previews |
 | Weather | Open-Meteo forecast for a chosen city |
 | Reminders | timed reminders that pop up as iPhone notifications, even with the app closed |
