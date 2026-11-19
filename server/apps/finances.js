@@ -7,7 +7,8 @@
 //                                                (with account: that account's balance as net_worth)
 //   GET    /api/finances/transactions?account=<id>&before=<posted ISO>&limit=50
 //                                             -> { transactions: [{account_id, account, id, posted, amount, description, payee, pending}], more }
-//   PATCH  /api/finances/accounts/:id {type?, hidden?, nickname?}  -> { account }
+//   PATCH  /api/finances/accounts/:id {type?, hidden?, nickname?, credit_limit?}  -> { account }
+//          credit_limit: a card's limit in dollars (SimpleFIN does not report it), or null to clear
 //          type: auto | cash | credit | investment | crypto | loan | other ('auto' clears the override)
 //   POST   /api/finances/sync                 -> same as GET /api/finances, after pulling fresh data
 //                                                (at most once every 10 minutes; SimpleFIN allows ~24 pulls a day)
@@ -106,6 +107,10 @@ export default {
           messages     TEXT    NOT NULL DEFAULT '[]'
         );
       `,
+    },
+    {
+      id: 'finances-2',
+      sql: 'ALTER TABLE finances_accounts ADD COLUMN credit_limit REAL;',
     },
   ],
   register(r, ctx) {
@@ -243,7 +248,7 @@ export default {
       if (!current) throw new HttpError(404, 'account not found');
       const body = await readJsonBody(req);
       if (!Object.keys(body).length) throw new HttpError(400, 'nothing to update');
-      const next = { type_override: current.type_override, hidden: current.hidden, nickname: current.nickname };
+      const next = { type_override: current.type_override, hidden: current.hidden, nickname: current.nickname, credit_limit: current.credit_limit };
       if (body.type !== undefined) {
         if (body.type !== 'auto' && !TYPES.includes(body.type)) throw new HttpError(400, `type must be auto or one of ${TYPES.join(', ')}`);
         next.type_override = body.type === 'auto' ? null : body.type;
@@ -253,6 +258,11 @@ export default {
         next.hidden = body.hidden;
       }
       if (body.nickname !== undefined) next.nickname = text(body.nickname, 'nickname', { max: 80 });
+      if (body.credit_limit !== undefined) {
+        const v = body.credit_limit;
+        if (v !== null && (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1e8)) throw new HttpError(400, 'credit_limit must be a dollar amount or null');
+        next.credit_limit = v === null ? null : Math.round(v * 100) / 100;
+      }
       repo.updateAccount(current.id, next);
       return { account: repo.accountOut(repo.account(current.id)) };
     });
@@ -413,7 +423,7 @@ function financesRepo(db) {
     ON CONFLICT(id) DO UPDATE SET org = excluded.org, org_domain = excluded.org_domain, name = excluded.name,
       currency = excluded.currency, balance = excluded.balance, available = excluded.available,
       balance_date = excluded.balance_date, holdings_value = excluded.holdings_value, updated_at = excluded.updated_at`);
-  const accUpdate = db.prepare('UPDATE finances_accounts SET type_override = ?, hidden = ?, nickname = ? WHERE id = ?');
+  const accUpdate = db.prepare('UPDATE finances_accounts SET type_override = ?, hidden = ?, nickname = ?, credit_limit = ? WHERE id = ?');
   const balUpsert = db.prepare(`INSERT INTO finances_balances (account_id, date, balance) VALUES (?, ?, ?)
     ON CONFLICT(account_id, date) DO UPDATE SET balance = excluded.balance`);
   const balBackfill = db.prepare('INSERT OR IGNORE INTO finances_balances (account_id, date, balance) VALUES (?, ?, ?)');
@@ -445,11 +455,19 @@ function financesRepo(db) {
   };
 
   const typeOf = (row) => row.type_override || autoType(row);
+  // A card's unused credit: its limit minus what is owed (balances owed are negative), else what
+  // SimpleFIN reports as available when that is positive. null when unknown.
+  const availableCredit = (row) => {
+    if (typeOf(row) !== 'credit') return null;
+    if (row.credit_limit !== null && row.credit_limit !== undefined) return Math.max(0, Math.round((row.credit_limit + Math.min(0, row.balance)) * 100) / 100);
+    return Number(row.available) > 0 ? row.available : null;
+  };
 
   function accountOut(row) {
     return {
       id: row.id, name: row.name, nickname: row.nickname, org: row.org, type: typeOf(row), type_auto: autoType(row),
       hidden: Boolean(row.hidden), balance: row.balance, available: row.available, currency: row.currency,
+      credit_limit: row.credit_limit ?? null, available_credit: availableCredit(row),
       balance_date: row.balance_date, holdings_value: row.holdings_value, updated_at: row.updated_at,
     };
   }
@@ -506,14 +524,14 @@ function financesRepo(db) {
     if (!first) return null;
     const days = Math.max(14, Math.round((Date.now() - Date.parse(first)) / DAY));
     const monthly = Math.round((spent / days) * 30.44 * 100) / 100;
-    const availableCredit = Math.round(visible
-      .filter((a) => typeOf(a) === 'credit' && Number(a.available) > 0)
-      .reduce((n, a) => n + Number(a.available), 0) * 100) / 100;
+    const totalCredit = Math.round(visible
+      .filter((a) => typeOf(a) === 'credit')
+      .reduce((n, a) => n + (availableCredit(a) || 0), 0) * 100) / 100;
     const liquid = Math.round((summary.cash - summary.credit) * 100) / 100;
     const months = (amount) => (monthly > 0 ? Math.max(0, Math.round((amount / monthly) * 10) / 10) : null);
     return {
-      monthly_spending: monthly, days, liquid, available_credit: availableCredit,
-      months: months(liquid), months_with_credit: months(liquid + availableCredit),
+      monthly_spending: monthly, days, liquid, available_credit: totalCredit,
+      months: months(liquid), months_with_credit: months(liquid + totalCredit),
     };
   }
 
@@ -551,7 +569,7 @@ function financesRepo(db) {
     account: (id) => accGet.get(String(id)) || null,
     accountOut,
     updateAccount(id, next) {
-      accUpdate.run(next.type_override, next.hidden ? 1 : 0, next.nickname, id);
+      accUpdate.run(next.type_override, next.hidden ? 1 : 0, next.nickname, next.credit_limit ?? null, id);
     },
     overview() {
       syncEnsure.run();

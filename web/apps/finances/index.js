@@ -556,7 +556,10 @@ function renderAccount() {
   const asOf = `As of ${fmt.date(a.balance_date || a.updated_at, { time: true })}`;
   const readout = el('div', { class: 'fn-readout muted', text: changeLine ? changeLine.textContent : asOf });
   const extra = [el('li', { class: 'kv' }, el('span', { class: 'k', text: 'Balance updated' }), el('span', { class: 'v', text: asOf.replace('As of ', '') }))];
-  if (a.available !== null && a.available !== undefined && a.available !== a.balance) {
+  if (a.type === 'credit' && a.credit_limit !== null) {
+    extra.push(el('li', { class: 'kv' }, el('span', { class: 'k', text: 'Credit limit' }), el('span', { class: 'v', text: money(a.credit_limit) })));
+    extra.push(el('li', { class: 'kv' }, el('span', { class: 'k', text: 'Available credit' }), el('span', { class: 'v', text: money(a.available_credit) })));
+  } else if (a.available !== null && a.available !== undefined && a.available !== a.balance) {
     extra.push(el('li', { class: 'kv' }, el('span', { class: 'k', text: a.type === 'credit' ? 'Available credit' : 'Available' }), el('span', { class: 'v', text: money(a.available, { currency: a.currency }) })));
   }
   if (a.holdings_value) extra.push(el('li', { class: 'kv' }, el('span', { class: 'k', text: 'Holdings value' }), el('span', { class: 'v', text: money(a.holdings_value) })));
@@ -582,6 +585,7 @@ async function accountMenu(a) {
       { label: 'Rename', value: 'rename' },
       { label: `Account Type: ${TYPE_ONE[a.type]}`, value: 'type' },
       { label: a.hidden ? 'Count in Net Worth' : 'Hide from Net Worth', value: 'hide' },
+      ...(a.type === 'credit' ? [{ label: a.credit_limit ? `Credit Limit: ${money(a.credit_limit, { cents: false })}` : 'Set Credit Limit', value: 'limit' }] : []),
     ],
   });
   if (choice === 'rename') {
@@ -603,6 +607,11 @@ async function accountMenu(a) {
     return patchAccount(a, { type });
   }
   if (choice === 'hide') return patchAccount(a, { hidden: !a.hidden });
+  if (choice === 'limit') {
+    const result = await formSheet({ title: 'Credit limit', fields: [{ key: 'limit', label: 'Limit in dollars (blank to clear)', type: 'number', value: a.credit_limit === null ? '' : String(a.credit_limit) }] });
+    if (!result || result === 'delete') return;
+    return patchAccount(a, { credit_limit: result.limit === null || Number.isNaN(result.limit) ? null : result.limit });
+  }
 }
 
 async function patchAccount(a, body) {
