@@ -538,6 +538,10 @@ database, untouched). The native recorder (`ios/JakesData/VoiceRecorder.swift`) 
   127.0.0.1, so the goal's progress follows the money. Setting `finances.goal` = goal id | 0 (off) |
   unset (automatic: the one active Money goal measured in "$" with a target). Only "$" goals can be
   linked. Home shows the linked goal as a card under net worth; ⋯ > Net Worth Goal changes it.
+- Runway card: (cash − card debt) ÷ monthly spending, plus the same counting the cards' available credit.
+  Spending = settled outflows on cash and card accounts over the last 90 days of data, minus transfers
+  between Jake's own accounts (an outflow matched by an equal inflow on another connected account within
+  5 days, e.g. card payments), scaled to a month. Income is ignored.
 - Routes are listed in the header of `server/apps/finances.js`.
 
 ### connector  (added 2026-11-02 — "Claude should update my app like it updates Notion")

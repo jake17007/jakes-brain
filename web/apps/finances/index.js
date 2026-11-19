@@ -288,6 +288,7 @@ function renderHome() {
   root.replaceChildren(bar, el('div', { class: 'app-content fn-page' },
     statusNotes(),
     hero,
+    runwayCard(),
     goalCard(),
     section('Totals'),
     el('ul', { class: 'card list fn-totals' }, ...totals),
@@ -385,6 +386,21 @@ async function syncNow(btn) {
 }
 
 // The Goals goal that follows net worth (one check-in a day, made on the PC after each update).
+// Runway: how many months cash (after card debt) lasts at normal spending, with no income.
+function runwayCard() {
+  const r = data && data.runway;
+  if (!r || r.months === null) return null;
+  const monthsText = (m) => (m >= 24 ? `${Math.round(m / 12 * 10) / 10} years` : `${m} month${m === 1 ? '' : 's'}`);
+  return el('section', { class: 'card fn-runway' },
+    el('div', { class: 'fn-label', text: 'Runway' }),
+    el('div', { class: `fn-runway-big${r.months < 3 ? ' fn-neg' : ''}`, text: monthsText(r.months) }),
+    el('div', { class: 'fn-runway-line', text: `${money(r.liquid, { cents: false })} cash after card debt ÷ ${money(r.monthly_spending, { cents: false })}/month spending` }),
+    r.available_credit > 0 && r.months_with_credit !== null
+      ? el('div', { class: 'fn-runway-line', text: `${monthsText(r.months_with_credit)} counting ${money(r.available_credit, { cents: false })} available credit` })
+      : null,
+    el('div', { class: 'fn-runway-note', text: `Spending from your last ${r.days} days, not counting transfers between your accounts. Income not included.` }));
+}
+
 function goalCard() {
   const g = data && data.goal_link;
   if (!g) return null;

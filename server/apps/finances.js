@@ -31,6 +31,9 @@
 //   balances follow SimpleFIN's sign: money owed on a card or loan is negative. `credit` and `loan`
 //   are reported as positive amounts owed. Hidden accounts count toward nothing.
 // change: { days: 30, net_worth: <delta> | null } against the closest snapshot at least 30 days old.
+// runway: { monthly_spending, days, liquid, available_credit, months, months_with_credit } | null
+//   liquid = cash - card debt; months = liquid / monthly spending (own-account transfers excluded,
+//   income ignored); months_with_credit also counts the cards' available credit.
 // account: { id, name, nickname, org, type, type_auto, hidden, balance, available, currency,
 //            balance_date, holdings_value, updated_at }
 // One balance snapshot per account per day (the latest pull that day) feeds the history chart;
@@ -466,6 +469,51 @@ function financesRepo(db) {
     return s;
   }
 
+  // Runway: how long the money lasts at normal spending with no income.
+  //   liquid   = cash - credit-card debt;  with credit = liquid + available credit on the cards
+  //   spending = settled outflows on cash and card accounts over the last 90 days of data, minus
+  //              money moved between Jake's own accounts (an outflow matched by an inflow of the same
+  //              amount on another connected account within 5 days, e.g. a card payment or a
+  //              transfer to savings), scaled to a 30.44-day month. Income is ignored on purpose.
+  function runway(rows, summary) {
+    const visible = rows.filter((a) => !a.hidden);
+    const typeById = new Map(visible.map((a) => [a.id, typeOf(a)]));
+    const spendIds = new Set(visible.filter((a) => ['cash', 'credit'].includes(typeOf(a))).map((a) => a.id));
+    if (!spendIds.size) return null;
+    const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
+    const txs = db.prepare('SELECT account_id, id, posted, amount, description FROM finances_transactions WHERE pending = 0 AND posted >= ? AND posted <= ? ORDER BY posted')
+      .all(since, new Date(Date.now() + 86_400_000).toISOString())
+      .filter((t) => typeById.has(t.account_id));
+    const inflows = txs.filter((t) => t.amount > 0);
+    const used = new Set();
+    const DAY = 86_400_000;
+    let spent = 0;
+    let first = null;
+    for (const t of txs) {
+      if (!spendIds.has(t.account_id)) continue;
+      if (!first || t.posted < first) first = t.posted;
+      if (t.amount >= 0) continue;
+      const at = Date.parse(t.posted);
+      const match = inflows.find((u) => !used.has(u) && u.account_id !== t.account_id
+        && Math.abs(u.amount + t.amount) < 0.005 && Math.abs(Date.parse(u.posted) - at) <= 5 * DAY);
+      if (match) { used.add(match); continue; }
+      if (/\b(online transfer|internal transfer|transfer to (sav|chk)|to savings|from checking)\b/i.test(t.description)) continue;
+      spent -= t.amount;
+    }
+    if (!first) return null;
+    const days = Math.max(14, Math.round((Date.now() - Date.parse(first)) / DAY));
+    const monthly = Math.round((spent / days) * 30.44 * 100) / 100;
+    const availableCredit = Math.round(visible
+      .filter((a) => typeOf(a) === 'credit' && Number(a.available) > 0)
+      .reduce((n, a) => n + Number(a.available), 0) * 100) / 100;
+    const liquid = Math.round((summary.cash - summary.credit) * 100) / 100;
+    const months = (amount) => (monthly > 0 ? Math.max(0, Math.round((amount / monthly) * 10) / 10) : null);
+    return {
+      monthly_spending: monthly, days, liquid, available_credit: availableCredit,
+      months: months(liquid), months_with_credit: months(liquid + availableCredit),
+    };
+  }
+
   // Net worth per day from the snapshots, carrying each account's last balance forward.
   function history(days, accountId = null) {
     const visible = new Set(accAll.all().filter((a) => (accountId ? a.id === accountId : !a.hidden)).map((a) => a.id));
@@ -518,7 +566,7 @@ function financesRepo(db) {
       try { messages = JSON.parse(s.messages || '[]'); } catch { /* keep [] */ }
       return {
         sync: { last_attempt: s.last_attempt, last_success: s.last_success, last_error: s.last_error, messages },
-        summary, change, accounts: rows.map(accountOut),
+        summary, change, runway: runway(rows, summary), accounts: rows.map(accountOut),
       };
     },
     history,

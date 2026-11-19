@@ -142,3 +142,9 @@
 .app-finances .fn-goal-bar { height: 6px; margin: 8px 0 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
 .app-finances .fn-goal-fill { height: 100%; background: var(--fn-up); border-radius: 3px; }
 .app-finances .fn-goal-sub { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---- runway */
+.app-finances .fn-runway { padding: 12px 14px; margin-top: 10px; }
+.app-finances .fn-runway-big { font-size: 28px; font-weight: 700; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
+.app-finances .fn-runway-line { font-size: 15px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.app-finances .fn-runway-note { font-size: 13px; color: var(--muted); margin-top: 6px; }
