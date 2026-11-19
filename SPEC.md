@@ -414,6 +414,9 @@ without media work). All inputs validated (400), missing rows 404.
   use devicePixelRatio, `touch-action: none` on the canvas, no scrolling of the page).
   Must also work with a mouse at desktop sizes (hover shows the label).
 - Empty state: "Nothing to connect yet — add some notes, tasks or posts." when < 2 nodes.
+- Core 4 view (nav bar button, kept in kit.store 'graph.view'): only four pillars, all connected —
+  physical and mental health, supportive relationships, clear personal goals, daily habits that align
+  with core values — and nothing else. All returns to the full graph.
 
 ### Added apps (2026-11-02)
 `reels`, `deals`, `people`. Each module's header comment lists its routes. `reels` is a

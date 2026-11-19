@@ -10,6 +10,8 @@
 // 3D (the 3D button): the same simulation gains a z axis and the canvas draws a perspective
 // projection with depth fog. Drag empty space = turn the graph (a flick keeps it turning),
 // shift-drag = pan, Spin = turn on its own, pausing while the mouse is on a node.
+// Core 4 (nav bar): a second view with only Jake's four pillars, connected to each other, and
+// nothing else; the choice is kept in kit.store 'graph.view'. All goes back to the full graph.
 // Full fills the monitor the window is on (hidden where the browser has no fullscreen API,
 // which is the iPhone, where the app already fills the screen).
 import * as kit from '../../kit.js';
@@ -21,6 +23,13 @@ const HOLD_SEARCH = 'graph:search';
 const HOLD_DRAG = 'graph:drag';
 const HOLD_FULL = 'graph:fullscreen';
 const MODE_KEY = 'graph.mode';
+const VIEW_KEY = 'graph.view';
+const CORE = [
+  { label: 'Physical and mental health', color: '#34c759' },
+  { label: 'Supportive relationships', color: '#ff375f' },
+  { label: 'Clear personal goals', color: '#6d28d9' },
+  { label: 'Daily habits that align with core values', color: '#ff9f0a' },
+];
 
 const TYPES = [
   { type: 'note', label: 'Notes', app: 'notes' },
@@ -205,9 +214,67 @@ function listen(target, type, fn, opts) {
 
 // ---------------------------------------------------------------- UI
 
+// The Core 4 view: the four pillars, every one connected to the others, and nothing else.
+function buildCore() {
+  const NS = 'http://www.w3.org/2000/svg';
+  const mk = (tag, attrs) => {
+    const node = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
+    return node;
+  };
+  const wrap = (text, max) => {
+    const lines = [];
+    let line = '';
+    for (const word of text.split(' ')) {
+      if (line && `${line} ${word}`.length > max) { lines.push(line); line = word; } else line = line ? `${line} ${word}` : word;
+    }
+    if (line) lines.push(line);
+    return lines;
+  };
+  const at = [[90, 150], [270, 150], [90, 350], [270, 350]];
+  const svg = mk('svg', { viewBox: '0 0 360 470', class: 'gcore-svg', role: 'img', 'aria-label': CORE.map((c) => c.label).join(', ') });
+  for (let i = 0; i < at.length; i += 1) {
+    for (let j = i + 1; j < at.length; j += 1) svg.append(mk('line', { x1: at[i][0], y1: at[i][1], x2: at[j][0], y2: at[j][1], class: 'gcore-edge' }));
+  }
+  CORE.forEach((c, i) => {
+    const [x, y] = at[i];
+    svg.append(mk('circle', { cx: x, cy: y, r: 22, fill: c.color }));
+    const text = mk('text', { x, y: y + 46, class: 'gcore-label' });
+    wrap(c.label, 18).forEach((line, k) => {
+      const span = mk('tspan', { x, dy: k ? 19 : 0 });
+      span.textContent = line;
+      text.append(span);
+    });
+    svg.append(text);
+  });
+  return el('div', { class: 'gcore', hidden: true }, svg);
+}
+
+function setCoreView(on, save = true) {
+  if (!S) return;
+  S.core = on;
+  if (save) store.set(VIEW_KEY, on ? 'core' : 'all');
+  const { core, stage, viewBtn, filterBtn } = S.els;
+  core.hidden = !on;
+  stage.classList.toggle('gcore-on', on);
+  filterBtn.hidden = on;
+  viewBtn.textContent = on ? 'All' : 'Core 4';
+  viewBtn.setAttribute('aria-label', on ? 'Show the full graph' : 'Show the four pillars');
+  if (on) {
+    if (S.sel) deselect(false);
+    stopLoop();
+  } else {
+    S.dirty = true;
+    resize();
+    startLoop();
+  }
+}
+
+
 function buildUi(root) {
   const filterBtn = navButton({ icon: 'search', label: 'Filter and search', onClick: openSheet });
-  const bar = navbar({ title: 'Graph', right: [filterBtn] });
+  const viewBtn = navButton({ label: 'Core 4', onClick: () => setCoreView(!S.core) });
+  const bar = navbar({ title: 'Graph', right: [viewBtn, filterBtn] });
 
   const canvas = el('canvas', { class: 'gcanvas', 'aria-label': 'Graph of your data', role: 'img' });
   const stats = el('span', { class: 'gstats', text: '' });
@@ -245,12 +312,14 @@ function buildUi(root) {
 
   const sheet = buildSheet();
 
-  const stage = el('div', { class: 'app-content gstage' }, canvas, info, empty, noMatch, card, sheet.host);
+  const core = buildCore();
+  const stage = el('div', { class: 'app-content gstage' }, canvas, info, empty, noMatch, card, core, sheet.host);
   root.append(bar, stage);
 
-  S.els = { bar, canvas, stage, info, stats, searchPill, fitBtn, modeBtn, spinBtn, fullBtn, empty, noMatch, card, cardDot, cardThumb, cardTitle, cardMeta, openBtn, centreBtn, ...sheet };
+  S.els = { bar, viewBtn, filterBtn, core, canvas, stage, info, stats, searchPill, fitBtn, modeBtn, spinBtn, fullBtn, empty, noMatch, card, cardDot, cardThumb, cardTitle, cardMeta, openBtn, centreBtn, ...sheet };
   S.g = canvas.getContext('2d', { alpha: false });
   syncMode();
+  setCoreView(store.get(VIEW_KEY, 'all') === 'core', false);
 
   // Size: the stage fills the window; the canvas follows it (devicePixelRatio aware).
   S.ro = new ResizeObserver(() => resize());
@@ -723,7 +792,7 @@ function startSim(alpha) {
 }
 
 function startLoop() {
-  if (!S || S.raf || document.hidden) return;
+  if (!S || S.raf || document.hidden || S.core) return;
   S.raf = requestAnimationFrame(frame);
 }
 
