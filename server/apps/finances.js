@@ -14,6 +14,15 @@
 //   POST   /api/finances/connect {token}      -> same as GET /api/finances   (in-app only: the connector denies it)
 //          token = a SimpleFIN setup token (base64 claim URL) or an access URL; only *.simplefin.org hosts
 //   DELETE /api/finances/connect              -> 204  forgets the access URL; balances and history stay
+//   PUT    /api/finances/goal {goal}          -> same as GET /api/finances. goal = an active goal measured in "$"
+//                                                with a target, 0 = off, null = automatic (see below)
+//
+// Net-worth goal: after every successful pull, today's net worth becomes a check-in on the linked
+// Goals goal (note "Net worth from Finances"; one per day, replaced on later pulls that day), so the
+// goal's progress follows the money. Setting `finances.goal`: a goal id, 0 for off, or unset for
+// automatic = the one active Money goal measured in "$" with a target, when there is exactly one.
+// Check-ins go through the Goals routes on the loopback address, so Goals keeps its own rules.
+// GET /api/finances adds goal_link: { goal_id, title, target_value, current_value, progress, target_date, auto } | null.
 //
 // The access URL (it carries the credentials) lives in DATA/finances/simplefin, mode 600. It is
 // never stored in the database, never returned by a route and never logged.
@@ -42,6 +51,9 @@ const MANUAL_GAP_MS = 10 * 60_000;
 const FIRST_HISTORY_DAYS = 40;      // under SimpleFIN's recommended 45-day maximum per pull
 const OVERLAP_DAYS = 5;
 const FETCH_TIMEOUT_MS = 45_000;
+const MAIN_PORT = Number(process.env.JAKESDATA_PORT) || 4800;
+const GOAL_SETTING = 'finances.goal';
+const GOAL_NOTE = 'Net worth from Finances';
 
 export default {
   id: 'finances',
@@ -109,7 +121,63 @@ export default {
       fs.renameSync(tmp, secretFile);
     };
 
-    const overview = () => ({ connected: Boolean(readAccess()), ...repo.overview() });
+    // ---- the net-worth goal
+    const goalRow = (id) => {
+      try { return ctx.db.prepare('SELECT * FROM goals WHERE id = ?').get(id) || null; } catch { return null; } // Goals not installed
+    };
+    function linkedGoal() {
+      const raw = ctx.settings.get(GOAL_SETTING, null);
+      if (raw === 0 || raw === '0') return null;
+      if (raw !== null && raw !== undefined && raw !== '') {
+        const row = goalRow(Number(raw));
+        return row && row.status === 'active' && row.unit === '$' ? { row, auto: false } : null;
+      }
+      try {
+        const rows = ctx.db.prepare("SELECT * FROM goals WHERE status = 'active' AND area = 'money' AND unit = '$' AND target_value IS NOT NULL").all();
+        return rows.length === 1 ? { row: rows[0], auto: true } : null;
+      } catch { return null; }
+    }
+    async function goalsApi(method, p, body) {
+      const res = await fetch(`http://127.0.0.1:${MAIN_PORT}${p}`, {
+        method,
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) throw new Error(`${method} ${p} -> HTTP ${res.status}`);
+      return res.status === 204 ? null : res.json();
+    }
+    // Today's net worth as the goal's check-in: at most one per day, replaced when it changes.
+    async function checkInGoal() {
+      const link = linkedGoal();
+      const { summary, accounts } = repo.overview();
+      if (!link || !accounts.some((a) => !a.hidden)) return;
+      const value = summary.net_worth;
+      const today = localDay();
+      try {
+        const { goal } = await goalsApi('GET', `/api/goals/${link.row.id}`);
+        const mine = goal.checkins.filter((c) => c.date === today && c.note === GOAL_NOTE);
+        if (mine.length === 1 && mine[0].value === value) return;
+        for (const c of mine) await goalsApi('DELETE', `/api/goals/${goal.id}/checkins/${c.id}`);
+        await goalsApi('POST', `/api/goals/${goal.id}/checkins`, { date: today, value, note: GOAL_NOTE });
+      } catch (err) {
+        log.warn(`net-worth check-in on goal ${link.row.id} failed: ${err.message}`);
+      }
+    }
+
+    const overview = () => {
+      const link = linkedGoal();
+      let goalLink = null;
+      if (link) {
+        const g = link.row;
+        const span = g.target_value !== null && g.start_value !== null ? g.target_value - g.start_value : 0;
+        goalLink = {
+          goal_id: g.id, title: g.title, target_value: g.target_value, current_value: g.current_value, target_date: g.target_date,
+          progress: span ? Math.max(0, Math.min(1, ((g.current_value ?? g.start_value) - g.start_value) / span)) : null, auto: link.auto,
+        };
+      }
+      return { connected: Boolean(readAccess()), ...repo.overview(), goal_link: goalLink };
+    };
 
     // One pull at a time; a second caller waits for the one in flight.
     function sync(reason) {
@@ -126,6 +194,7 @@ export default {
           const count = repo.store(data.accounts, started);
           repo.markSuccess(started, data.messages);
           log.info(`synced ${count} account${count === 1 ? '' : 's'} (${reason})`);
+          await checkInGoal();
           return true;
         } catch (err) {
           const message = err instanceof HttpError ? err.message : 'Could not reach SimpleFIN';
@@ -206,6 +275,24 @@ export default {
       writeAccess(access);
       log.info('SimpleFIN connected');
       await sync('connect');
+      return overview();
+    });
+
+    r.put('/api/finances/goal', async (req) => {
+      const body = await readJsonBody(req);
+      if (!Object.hasOwn(body, 'goal')) throw new HttpError(400, 'send { goal: <goal id> | 0 | null }');
+      const goal = body.goal;
+      if (goal === null) ctx.settings.patch({ [GOAL_SETTING]: null });
+      else if (goal === 0) ctx.settings.patch({ [GOAL_SETTING]: 0 });
+      else {
+        if (!Number.isInteger(goal) || goal < 1) throw new HttpError(400, 'goal must be a goal id, 0 or null');
+        const row = goalRow(goal);
+        if (!row) throw new HttpError(404, 'goal not found');
+        if (row.status !== 'active') throw new HttpError(409, 'that goal is not active');
+        if (row.unit !== '$' || row.target_value === null) throw new HttpError(409, 'only a goal measured in $ with a target can follow net worth');
+        ctx.settings.patch({ [GOAL_SETTING]: goal });
+      }
+      await checkInGoal();
       return overview();
     });
 

@@ -288,6 +288,7 @@ function renderHome() {
   root.replaceChildren(bar, el('div', { class: 'app-content fn-page' },
     statusNotes(),
     hero,
+    goalCard(),
     section('Totals'),
     el('ul', { class: 'card list fn-totals' }, ...totals),
     ...groups.flatMap(([type, label, list]) => [
@@ -383,11 +384,59 @@ async function syncNow(btn) {
   }
 }
 
+// The Goals goal that follows net worth (one check-in a day, made on the PC after each update).
+function goalCard() {
+  const g = data && data.goal_link;
+  if (!g) return null;
+  const pct = g.progress === null ? null : Math.round(g.progress * 100);
+  const fill = el('div', { class: 'fn-goal-fill' });
+  fill.style.width = `${pct || 0}%`;
+  const bits = [g.target_value !== null ? `${money(g.current_value ?? 0, { cents: false })} of ${money(g.target_value, { cents: false })}` : null,
+    g.target_date ? `by ${fmt.date(new Date(`${g.target_date}T12:00:00`), { year: true })}` : null].filter(Boolean).join(' · ');
+  return el('button', { type: 'button', class: 'card fn-goal', 'on:click': () => nav.go(`#/goals/${g.goal_id}`) },
+    el('div', { class: 'fn-goal-top' },
+      el('span', { class: 'fn-goal-title', text: g.title }),
+      pct !== null ? el('span', { class: 'fn-goal-pct', text: `${pct}%` }) : null,
+      icon('chevron-right', { size: 18 })),
+    el('div', { class: 'fn-goal-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(pct || 0) }, fill),
+    el('div', { class: 'fn-goal-sub', text: bits ? `${bits} · updated from net worth` : 'Updated from net worth' }));
+}
+
+async function goalPicker() {
+  let goals = [];
+  try {
+    ({ goals } = await api('/api/goals?status=active'));
+  } catch (err) {
+    return toast(err && err.status ? err.message : "Couldn't load goals — the PC is unreachable", { kind: 'error' });
+  }
+  const link = data.goal_link;
+  const measured = goals.filter((g) => g.unit === '$' && g.target_value !== null && g.target_value !== undefined);
+  const choice = await actionSheet({
+    title: 'Net worth goal',
+    message: 'After each update, today’s net worth is checked in on this goal.',
+    actions: [
+      ...measured.map((g) => ({ label: g.title, value: g.id, selected: Boolean(link && link.goal_id === g.id && !link.auto) })),
+      { label: 'Automatic (your one $ money goal)', value: 'auto', selected: Boolean(link && link.auto) },
+      { label: 'Off', value: 'off', selected: !link },
+    ],
+  });
+  if (choice === null) return;
+  try {
+    data = await api('/api/finances/goal', { method: 'PUT', body: { goal: choice === 'auto' ? null : choice === 'off' ? 0 : choice } });
+    haptic('success');
+    render();
+  } catch (err) {
+    toast(err && err.status ? err.message : "Couldn't save — the PC is unreachable", { kind: 'error' });
+  }
+}
+
 async function homeMenu() {
   const actions = [];
+  actions.push({ label: data.goal_link ? `Net Worth Goal: ${data.goal_link.title}` : 'Net Worth Goal: Off', value: 'goal' });
   if (data.connected) actions.push({ label: 'Replace SimpleFIN Connection', value: 'replace' }, { label: 'Disconnect SimpleFIN', value: 'disconnect', destructive: true });
   else actions.push({ label: 'Connect SimpleFIN', value: 'replace' });
   const choice = await actionSheet({ title: 'Finances', message: data.connected ? updatedLine() : '', actions });
+  if (choice === 'goal') return goalPicker();
   if (choice === 'replace') return connectSheet();
   if (choice === 'disconnect') {
     const ok = await confirmSheet({

@@ -533,6 +533,11 @@ database, untouched). The native recorder (`ios/JakesData/VoiceRecorder.swift`) 
 - UI: home = net worth, change over the chosen range (1M / 3M / 1Y / All) and a scrubbable chart,
   totals, accounts grouped by type, recent transactions; `#/finances/a/<id>` = one account (chart,
   details, transactions, options); `#/finances/transactions` = everything, Load More.
+- Net-worth goal: after every successful pull, today's net worth is checked in (note "Net worth from
+  Finances", one per day, replaced on later pulls) on the linked Goals goal through the Goals routes on
+  127.0.0.1, so the goal's progress follows the money. Setting `finances.goal` = goal id | 0 (off) |
+  unset (automatic: the one active Money goal measured in "$" with a target). Only "$" goals can be
+  linked. Home shows the linked goal as a card under net worth; ⋯ > Net Worth Goal changes it.
 - Routes are listed in the header of `server/apps/finances.js`.
 
 ### connector  (added 2026-11-02 — "Claude should update my app like it updates Notion")
