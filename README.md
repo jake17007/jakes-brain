@@ -90,7 +90,7 @@ deploy/setup-pc.sh
 
 | | |
 |---|---|
-| Public iPhone app | https://nonpertinent-striped-deandre.ngrok-free.dev (sign-in required) |
+| Public iPhone app | https://jakes-brain.tail7a4a30.ts.net (sign-in required) |
 | PC over Tailscale | http://100.106.249.89:4800 |
 | PC on home WiFi | http://192.168.1.81:4800 |
 | Database | `~/jakes-data-app-data/jakesdata.db` on the PC (never in the repo) |

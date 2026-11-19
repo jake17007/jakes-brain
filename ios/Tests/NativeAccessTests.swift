@@ -7,10 +7,10 @@ final class NativeAccessTests: XCTestCase {
         XCTAssertTrue(Config.isAppURL(Config.origin.appendingPathComponent("api/voice/upload")))
         for address in [
             "http://100.106.249.89:4800", "http://192.168.1.81:4800",
-            "http://nonpertinent-striped-deandre.ngrok-free.dev",
-            "https://nonpertinent-striped-deandre.ngrok-free.dev.evil.example",
-            "https://nonpertinent-striped-deandre.ngrok-free.dev:444",
-            "https://owner@nonpertinent-striped-deandre.ngrok-free.dev"
+            "http://jakes-brain.tail7a4a30.ts.net",
+            "https://jakes-brain.tail7a4a30.ts.net.evil.example",
+            "https://jakes-brain.tail7a4a30.ts.net:444",
+            "https://owner@jakes-brain.tail7a4a30.ts.net"
         ] {
             XCTAssertFalse(Config.isAppURL(URL(string: address)!), address)
         }
@@ -26,7 +26,7 @@ final class NativeAccessTests: XCTestCase {
         XCTAssertFalse(NativeHTTP.cookieMatches(cookie(domain: "evil.example"), url: api))
         XCTAssertFalse(NativeHTTP.cookieMatches(cookie(expires: Date(timeIntervalSince1970: 1)), url: api))
         XCTAssertFalse(NativeHTTP.cookieMatches(cookie(), url: URL(string: "https://evil.example/api")!))
-        XCTAssertFalse(NativeHTTP.cookieMatches(cookie(), url: URL(string: "http://nonpertinent-striped-deandre.ngrok-free.dev/api")!))
+        XCTAssertFalse(NativeHTTP.cookieMatches(cookie(), url: URL(string: "http://jakes-brain.tail7a4a30.ts.net/api")!))
     }
 
     func testPairingCookieParsesAsHostScopedHttpOnlySession() {
@@ -49,7 +49,6 @@ final class NativeAccessTests: XCTestCase {
         let request = try await NativeHTTP.request(to: Config.origin.appendingPathComponent("api/reminders"), webView: webView)
         XCTAssertEqual(request.value(forHTTPHeaderField: "Origin"), Config.origin.absoluteString)
         XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "JakeBrain/1.4")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "ngrok-skip-browser-warning"), "1")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "test-session=only-a-test")
         XCTAssertNil(NativeHTTP.session.configuration.httpCookieStorage)
     }

@@ -1,8 +1,8 @@
 import Foundation
 
 enum Config {
-    /// Public HTTPS gateway to the PC. The phone needs only an internet connection.
-    static let origin = URL(string: "https://nonpertinent-striped-deandre.ngrok-free.dev")!
+    /// Public HTTPS gateway to the PC (Tailscale Funnel). The phone needs only an internet connection.
+    static let origin = URL(string: "https://jakes-brain.tail7a4a30.ts.net")!
     static let candidates = [origin]
     static let userAgent = "JakeBrain/1.4"
     static let healthPath = "/api/health"
@@ -20,6 +20,5 @@ enum Config {
 
     static func addTransportHeaders(to request: inout URLRequest) {
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("1", forHTTPHeaderField: "ngrok-skip-browser-warning")
     }
 }

@@ -21,7 +21,7 @@ on the PC changes the app with no rebuild; only `ios/` changes need Xcode.
 | Apple team | 3VTHP9BHH6 (paid, Individual) |
 | Jake's iPhone UDID | YOUR_IPHONE_UDID (iPhone 17 Pro) |
 
-The iPhone uses `https://nonpertinent-striped-deandre.ngrok-free.dev` over ordinary internet.
+The iPhone uses `https://jakes-brain.tail7a4a30.ts.net` over ordinary internet.
 The PC tunnel forwards to authenticated gateway :4801, which proxies signed-in app requests to
 private :4800. No phone VPN is required. Native health discovery is public but returns only `{ok:true}`.
 Native requests copy the WebKit session cookie and send the same-origin `Origin`; old private URL
@@ -552,7 +552,7 @@ database, untouched). The native recorder (`ios/JakesData/VoiceRecorder.swift`) 
   `/api/bots*` (real money), raw `/upload` routes (a JSON tool can't carry a file), `connector.*`
   settings. The dedicated tools (food_log/day/history/search/update/delete/goals, tasks_list/add/
   set_done, grocery_list/add, notes_search/create) tune the things Jake does most.
-- `deploy/connector/`: the tunnel (ngrok or Cloudflare) as `jakes-brain-tunnel.service`, and
+- `deploy/connector/`: the tunnel (Tailscale Funnel by default; ngrok or Cloudflare also work) as `jakes-brain-tunnel.service`, and
   `setup-connector.sh` (run from the Mac). Only :4801 is tunnelled; :4800 stays LAN/tailnet-only.
 - `server/apps/_connector_auth.js`: the sign-in, an OAuth 2.1 authorization server (discovery,
   dynamic client registration, PKCE S256, refresh rotation) with one user: Jake's password, an scrypt
