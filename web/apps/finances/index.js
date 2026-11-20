@@ -6,13 +6,11 @@
 // Data: /api/finances* (server/apps/finances.js). Read-only: nothing here moves money.
 import * as kit from '../../kit.js';
 import { formSheet } from '../../form.js';
-import { createRecordingApi } from './recording-data.js';
 
 const {
-  api: liveApi, el, fmt, toast, haptic, navbar, navButton, section, emptyState, confirmSheet, actionSheet,
+  api, el, fmt, toast, haptic, navbar, navButton, section, emptyState, confirmSheet, actionSheet,
   holdReload, releaseReload, icon, nav, store,
 } = kit;
-const api = createRecordingApi(liveApi, () => session.get(TOKEN_KEY));
 
 const TYPES = [
   ['cash', 'Cash'], ['credit', 'Credit cards'], ['crypto', 'Crypto'],
