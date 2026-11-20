@@ -69,7 +69,9 @@ request bodies in the module's header comment. `SPEC.md` has the full contract a
 `server/apps/tasks.js` are the smallest complete example.
 
 **Native shell** (`ios/`): rarely needed. Plug the phone in, unlock it, and run
-`deploy/install-on-phone.sh`. Simulator: `deploy/run-sim.sh`.
+`JAKESDATA_DEVICE_UDID='your-device-udid' deploy/install-on-phone.sh`. Keep the actual device
+identifier in local shell configuration, outside Git. `deploy/launch-paired-phone.py` uses the
+same environment variable or an explicit `--device` argument. Simulator: `deploy/run-sim.sh`.
 
 ## Desktop version (on the PC)
 

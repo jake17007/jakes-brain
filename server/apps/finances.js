@@ -645,7 +645,7 @@ function financesRepo(db) {
       if (match) { used.add(match); continue; }
       if (/\b(online transfer|internal transfer|transfer to (sav|chk)|to savings|from checking)\b/i.test(t.description)) continue;
       // Card payments whose card-side credit is outside the pulled window (the purchases themselves
-      // are counted on the card), e.g. "WELLS FARGO CARD CCPYMT", "Payment to Chase card".
+      // are counted on the card), e.g. "CREDIT CARD PAYMENT" or "Payment to bank card".
       if (/\b(cc ?pymt|card ?pymt|crd ?pymt|credit crd|credit card payment|payment to [a-z ]*card)\b/i.test(t.description)) continue;
       spent -= t.amount;
     }

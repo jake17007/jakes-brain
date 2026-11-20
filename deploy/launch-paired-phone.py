@@ -15,8 +15,12 @@ import sys
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--token-file", type=Path, required=True)
-parser.add_argument("--device", default="YOUR_IPHONE_UDID")
+parser.add_argument("--device", default=os.environ.get("JAKESDATA_DEVICE_UDID"),
+                    help="iPhone UDID; defaults to local JAKESDATA_DEVICE_UDID")
 args = parser.parse_args()
+if not args.device or not args.device.strip():
+    parser.error("Pass --device or set JAKESDATA_DEVICE_UDID to your iPhone UDID locally.")
+args.device = args.device.strip()
 
 try:
     fd = os.open(args.token_file, os.O_RDONLY | os.O_NOFOLLOW)

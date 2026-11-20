@@ -19,7 +19,7 @@ on the PC changes the app with no rebuild; only `ios/` changes need Xcode.
 | Mac repo path | /Users/jacobbeauchamp/jakes-data-app |
 | iOS bundle id | com.jakebeau.jakesdata |
 | Apple team | 3VTHP9BHH6 (paid, Individual) |
-| Jake's iPhone UDID | YOUR_IPHONE_UDID (iPhone 17 Pro) |
+| iPhone device selection | Set `JAKESDATA_DEVICE_UDID` locally; the pairing helper also accepts `--device`. Keep device identifiers out of Git. |
 
 The iPhone uses `https://jakes-brain.tail7a4a30.ts.net` over ordinary internet.
 The PC tunnel forwards to authenticated gateway :4801, which proxies signed-in app requests to
