@@ -1,0 +1,186 @@
+/* Finances app. Money up = green, money owed / down = red; the chart line follows the range. */
+.app-finances { --fn-up: #1f9d55; --fn-down: var(--red); }
+@media (prefers-color-scheme: dark) {
+  .app-finances { --fn-up: #30d158; }
+}
+
+.app-finances .fn-loading { padding: 24px 4px; }
+.app-finances .fn-page > .card + .card { margin-top: 10px; }
+.app-finances .fn-neg { color: var(--fn-down); }
+
+/* ---- net worth / balance card */
+.app-finances .fn-hero { padding: 14px 14px 12px; }
+.app-finances .fn-label { font-size: 15px; color: var(--muted); overflow-wrap: anywhere; }
+.app-finances .fn-big {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.app-finances .fn-change { margin-top: 4px; font-size: 15px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.app-finances .fn-change.up { color: var(--fn-up); }
+.app-finances .fn-change.down { color: var(--fn-down); }
+/* The readout repeats the change line until a finger is on the chart. */
+.app-finances .fn-change + .fn-readout { display: none; }
+.app-finances .fn-hero:has(.fn-cross[visibility="visible"]) .fn-change { display: none; }
+.app-finances .fn-hero:has(.fn-cross[visibility="visible"]) .fn-change + .fn-readout { display: block; }
+.app-finances .fn-readout { margin-top: 4px; font-size: 15px; min-height: 20px; font-variant-numeric: tabular-nums; }
+
+.app-finances .fn-chart { margin: 10px -4px 8px; }
+.app-finances .fn-chart-svg { display: block; width: 100%; height: auto; touch-action: pan-y; overflow: visible; }
+.app-finances .fn-chart-empty { font-size: 15px; padding: 26px 4px; text-align: center; }
+.app-finances .fn-line { fill: none; stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
+.app-finances .fn-area { stroke: none; opacity: 0.12; }
+.app-finances .up .fn-line { stroke: var(--fn-up); }
+.app-finances .up .fn-area { fill: var(--fn-up); }
+.app-finances .down .fn-line { stroke: var(--fn-down); }
+.app-finances .down .fn-area { fill: var(--fn-down); }
+.app-finances .fn-tick { font-size: 11px; fill: var(--muted); }
+.app-finances .fn-cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.app-finances .fn-dot { fill: var(--card); stroke-width: 2.5; }
+.app-finances .up .fn-dot { stroke: var(--fn-up); }
+.app-finances .down .fn-dot { stroke: var(--fn-down); }
+.app-finances .fn-range { margin-top: 2px; display: flex; width: 100%; box-sizing: border-box; }
+.app-finances .fn-range > button { flex: 1 1 0; }
+
+/* ---- totals and sections */
+.app-finances .fn-totals .v { font-weight: 600; }
+.app-finances .fn-section-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.app-finances .fn-section-row > :first-child { flex: 1 1 auto; }
+.app-finances .fn-section-sum { font-size: 15px; font-variant-numeric: tabular-nums; padding-right: 2px; }
+.app-finances .fn-link { color: var(--accent); font-size: 15px; min-height: 44px; padding: 0 2px; }
+
+/* ---- account rows */
+.app-finances .fn-acct {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 0;
+  text-align: left;
+  color: inherit;
+  border-bottom: 1px solid var(--hair);
+}
+.app-finances .fn-acct:last-child { border-bottom: 0; }
+.app-finances .fn-acct:active { background: var(--track); margin: 0 -14px; padding-left: 14px; padding-right: 14px; width: calc(100% + 28px); }
+.app-finances .fn-acct-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.app-finances .fn-acct-name { font-size: 17px; overflow-wrap: anywhere; }
+.app-finances .fn-acct-sub { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+.app-finances .fn-acct-sub.stale { color: var(--fn-down); }
+.app-finances .fn-acct-bal { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+.app-finances .fn-acct .icon { flex: 0 0 auto; color: var(--grey); margin-right: -4px; }
+.app-finances .fn-acct.hidden .fn-acct-name, .app-finances .fn-acct.hidden .fn-acct-bal { color: var(--muted); }
+
+/* ---- transactions */
+.app-finances .fn-tx-day {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 10px 0 4px;
+  border-bottom: 1px solid var(--hair);
+}
+.app-finances .fn-tx { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 7px 0; border-bottom: 1px solid var(--hair); }
+.app-finances .fn-tx:last-child { border-bottom: 0; }
+.app-finances .fn-tx-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.app-finances .fn-tx-title { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-finances .fn-tx-sub { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-finances .fn-tx-amt { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.app-finances .fn-tx-amt.in { color: var(--fn-up); font-weight: 600; }
+.app-finances .fn-pill { flex: 0 0 auto; font-size: 12px; color: var(--muted); background: var(--fill); border-radius: 6px; padding: 2px 6px; }
+.app-finances .fn-more { margin-top: 12px; width: 100%; }
+
+/* ---- notes, footer */
+.app-finances .fn-note { padding: 12px 14px; margin-bottom: 10px; font-size: 15px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.app-finances .fn-note > div { flex: 1 1 200px; }
+.app-finances .fn-note.warn { border-left: 4px solid var(--amber); }
+.app-finances .fn-foot { font-size: 13px; text-align: center; margin: 18px 8px 0; }
+
+/* ---- connecting */
+.app-finances .fn-setup { padding: 16px 14px; }
+.app-finances .fn-setup h2, .app-finances .fn-sheet h2 { margin: 0 0 8px; font-size: 22px; }
+.app-finances .fn-setup > p { margin: 0 0 10px; }
+.app-finances .fn-steps { margin: 4px 0 14px; padding-left: 22px; line-height: 1.45; }
+.app-finances .fn-steps li { margin: 6px 0; }
+.app-finances .fn-steps a { color: var(--accent); }
+.app-finances .fn-connect-form { display: flex; flex-direction: column; gap: 10px; }
+.app-finances .fn-token { width: 100%; box-sizing: border-box; font-size: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; min-height: 88px; }
+.app-finances .fn-connect { min-height: 44px; }
+.app-finances .fn-fine { font-size: 13px; margin: 12px 0 0; }
+
+.app-finances .fn-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.app-finances .fn-sheet {
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow: auto;
+  box-sizing: border-box;
+  border-radius: 14px 14px 0 0;
+  background: var(--sheet);
+  padding: 16px calc(16px + var(--sar)) calc(16px + var(--sab)) calc(16px + var(--sal));
+}
+.app-finances .fn-sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.app-finances .fn-sheet-close { min-width: 44px; min-height: 44px; margin: -10px -10px 0 0; color: var(--muted); }
+
+/* ---- the goal that follows net worth */
+.app-finances .fn-goal { display: block; width: 100%; text-align: left; color: inherit; padding: 12px 14px; margin-top: 10px; }
+.app-finances .fn-goal-top { display: flex; align-items: center; gap: 8px; }
+.app-finances .fn-goal-title { flex: 1 1 auto; min-width: 0; font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+.app-finances .fn-goal-pct { flex: 0 0 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.app-finances .fn-goal-top .icon { flex: 0 0 auto; color: var(--grey); margin-right: -4px; }
+.app-finances .fn-goal-bar { height: 6px; margin: 8px 0 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
+.app-finances .fn-goal-fill { height: 100%; background: var(--fn-up); border-radius: 3px; }
+.app-finances .fn-goal-sub { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---- runway */
+.app-finances .fn-runway { padding: 12px 14px; margin-top: 10px; }
+.app-finances .fn-runway-big { font-size: 28px; font-weight: 700; margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
+.app-finances .fn-runway-line { font-size: 15px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.app-finances .fn-runway-note { font-size: 13px; color: var(--muted); margin-top: 6px; }
+
+/* ---- lock screen */
+.app-finances .fn-pin { width: 100%; box-sizing: border-box; font-size: 22px; letter-spacing: 0.3em; text-align: center; }
+.app-finances .fn-face { width: 100%; min-height: 44px; margin: 4px 0 12px; }
+
+/* Isolated demo additions: sample provenance and Budget, using the original kit. */
+.app-finances .nav-title { display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1.15; gap:3px; }
+.app-finances .fn-sample-label { display:block; font-size:10px; font-weight:500; letter-spacing:.035em; color:var(--muted); white-space:nowrap; }
+.app-finances .fn-budget-preview { display:block; width:100%; text-align:left; color:inherit; padding:15px 14px; margin-top:10px; }
+.app-finances .fn-budget-preview-values { margin:12px 0 8px; font-size:15px; }
+.app-finances .fn-budget-preview-values strong { font-size:24px; letter-spacing:-.025em; font-variant-numeric:tabular-nums; }
+.app-finances .fn-budget-link { font-size:14px; color:var(--accent); }
+.app-finances .fn-budget-track { height:7px; border-radius:8px; overflow:hidden; background:var(--track); margin:10px 0; }
+.app-finances .fn-budget-fill { display:block; height:100%; border-radius:inherit; background:var(--fn-up); transition:width .25s ease; }
+.app-finances .fn-budget-hero { padding:20px 16px 16px; }
+.app-finances .fn-budget-title { margin-top:4px; font-size:25px; line-height:1.2; font-weight:700; letter-spacing:-.025em; }
+.app-finances .fn-budget-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:24px 0 18px; }
+.app-finances .fn-budget-stat-label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+.app-finances .fn-budget-stats strong { font-size:22px; letter-spacing:-.04em; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.app-finances .fn-budget-green { color:var(--fn-up); }
+.app-finances .fn-budget-foot { font-size:13px; color:var(--muted); margin:10px 0 0; }
+.app-finances .fn-budget-hint { font-size:13px; }
+.app-finances .fn-budget-categories { padding:0 14px; }
+.app-finances .fn-budget-category { display:block; width:100%; color:inherit; text-align:left; padding:17px 0; border-bottom:1px solid var(--hair); }
+.app-finances .fn-budget-category:last-child { border-bottom:0; }
+.app-finances .fn-budget-category-top { display:flex; align-items:center; gap:9px; }
+.app-finances .fn-budget-category-top strong { flex:1; font-size:16px; font-weight:600; }
+.app-finances .fn-budget-dot { width:8px; height:8px; border-radius:50%; }
+.app-finances .fn-budget-category-total { font-size:16px; font-weight:600; font-variant-numeric:tabular-nums; }
+.app-finances .fn-budget-category .icon { color:var(--muted); }
+.app-finances .fn-budget-category-bottom { display:flex; justify-content:space-between; gap:8px; color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
+.app-finances .fn-budget-category-amount { display:flex; gap:6px; align-items:baseline; margin:22px 0 14px; font-size:16px; }
+.app-finances .fn-budget-category-amount strong { font-size:34px; letter-spacing:-.035em; font-variant-numeric:tabular-nums; }
+.app-finances .fn-budget-category-summary { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:16px; font-size:14px; font-weight:500; }
+.app-finances .fn-budget-edit { min-height:42px; padding:10px 15px; font-size:14px; }
+@media(max-width:380px) { .app-finances .fn-budget-stats strong { font-size:19px; } }

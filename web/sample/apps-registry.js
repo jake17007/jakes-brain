@@ -1,0 +1,114 @@
+export default {
+  "dock": [
+    "notes",
+    "jakestagram",
+    "jaketube",
+    "jakegpt"
+  ],
+  "grid": [
+    "graph",
+    "calendar",
+    "tasks",
+    "grocery",
+    "reminders",
+    "workout",
+    "food",
+    "habits",
+    "goals",
+    "finances",
+    "weather",
+    "files",
+    "reels",
+    "deals",
+    "people",
+    "server",
+    "settings"
+  ],
+  "apps": {
+    "notes": {
+      "label": "Notes",
+      "color": "#ffcc00"
+    },
+    "tasks": {
+      "label": "Tasks",
+      "color": "#5e5ce6"
+    },
+    "calendar": {
+      "label": "Calendar",
+      "color": "#ffffff",
+      "tile": "calendar"
+    },
+    "jakestagram": {
+      "label": "Jakestagram",
+      "color": "#e1306c"
+    },
+    "jaketube": {
+      "label": "JakeTube",
+      "color": "#e62117"
+    },
+    "jakegpt": {
+      "label": "JakeGPT",
+      "color": "#10a37f"
+    },
+    "habits": {
+      "label": "Habits",
+      "color": "#ff9f0a"
+    },
+    "files": {
+      "label": "Files",
+      "color": "#0a84ff"
+    },
+    "weather": {
+      "label": "Weather",
+      "color": "#32ade6"
+    },
+    "server": {
+      "label": "Server",
+      "color": "#34c759"
+    },
+    "settings": {
+      "label": "Settings",
+      "color": "#8e8e93"
+    },
+    "graph": {
+      "label": "Graph",
+      "color": "#bf5af2"
+    },
+    "reels": {
+      "label": "Reels",
+      "color": "#ff375f"
+    },
+    "deals": {
+      "label": "Deals",
+      "color": "#30b158"
+    },
+    "people": {
+      "label": "People",
+      "color": "#ac8e68"
+    },
+    "reminders": {
+      "label": "Reminders",
+      "color": "#c2410c"
+    },
+    "grocery": {
+      "label": "Groceries",
+      "color": "#65a30d"
+    },
+    "workout": {
+      "label": "Workout",
+      "color": "#2563eb"
+    },
+    "food": {
+      "label": "Food",
+      "color": "#ca8a04"
+    },
+    "goals": {
+      "label": "Goals",
+      "color": "#6d28d9"
+    },
+    "finances": {
+      "label": "Finances",
+      "color": "#047857"
+    }
+  }
+};

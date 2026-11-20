@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Jake's Brain · Sample Finances</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Jake's own apps on his PC: notes, tasks, calendar, photos, videos, chat, files, weather and the server at a glance.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2f2f7">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Jake's Brain">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="/sample/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/sample/icons/icon-180.png">
+  <link rel="icon" type="image/png" href="/sample/icons/favicon.png">
+  <link rel="stylesheet" href="/sample/styles.css">
+  <link rel="stylesheet" href="/sample/sample-mode.css">
+  <link rel="modulepreload" href="/sample/kit.js">
+</head>
+<body>
+  <aside class="sample-switcher" aria-label="Sample mode">
+    <div class="sample-mode-copy"><strong>Sample data</strong><span>Changes stay in this demo</span></div>
+    <a id="return-real-app" href="https://jakes-brain.tail7a4a30.ts.net/#/finances" rel="noreferrer">Return to real app<span aria-hidden="true"> ↗</span></a>
+  </aside>
+  <div id="banner" class="banner" role="status" aria-live="polite" hidden>Can't reach the PC — retrying…</div>
+
+  <main id="home" class="home" aria-label="Home">
+    <p id="home-date" class="home-date" aria-live="off"></p>
+    <div id="grid" class="grid" aria-label="Apps"></div>
+    <div id="dock" class="dock" aria-label="Dock"></div>
+  </main>
+
+  <div id="app" class="applayer" hidden></div>
+  <div id="sheet" class="sheet" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="/sample/demo-start.js"></script>
+</body>
+</html>

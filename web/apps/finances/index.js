@@ -627,12 +627,13 @@ async function goalPicker() {
 }
 
 async function homeMenu() {
-  const actions = [];
+  const actions = [{ label: 'Open sample version', value: 'sample' }];
   actions.push({ label: 'PIN / Face ID Lock', value: 'lock' });
   actions.push({ label: data.goal_link ? `Net Worth Goal: ${data.goal_link.title}` : 'Net Worth Goal: Off', value: 'goal' });
   if (data.connected) actions.push({ label: 'Replace SimpleFIN Connection', value: 'replace' }, { label: 'Disconnect SimpleFIN', value: 'disconnect', destructive: true });
   else actions.push({ label: 'Connect SimpleFIN', value: 'replace' });
   const choice = await actionSheet({ title: 'Finances', message: data.connected ? updatedLine() : '', actions });
+  if (choice === 'sample') return location.assign('/sample/index.html#/');
   if (choice === 'lock') return lockMenu();
   if (choice === 'goal') return goalPicker();
   if (choice === 'replace') return connectSheet();
