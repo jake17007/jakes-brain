@@ -6,11 +6,13 @@
 // Data: /api/finances* (server/apps/finances.js). Read-only: nothing here moves money.
 import * as kit from '../../kit.js';
 import { formSheet } from '../../form.js';
+import { createRecordingApi } from './recording-data.js';
 
 const {
-  api, el, fmt, toast, haptic, navbar, navButton, section, emptyState, confirmSheet, actionSheet,
+  api: liveApi, el, fmt, toast, haptic, navbar, navButton, section, emptyState, confirmSheet, actionSheet,
   holdReload, releaseReload, icon, nav, store,
 } = kit;
+const api = createRecordingApi(liveApi, () => session.get(TOKEN_KEY));
 
 const TYPES = [
   ['cash', 'Cash'], ['credit', 'Credit cards'], ['crypto', 'Crypto'],
@@ -627,13 +629,12 @@ async function goalPicker() {
 }
 
 async function homeMenu() {
-  const actions = [{ label: 'Open sample version', value: 'sample' }];
+  const actions = [];
   actions.push({ label: 'PIN / Face ID Lock', value: 'lock' });
   actions.push({ label: data.goal_link ? `Net Worth Goal: ${data.goal_link.title}` : 'Net Worth Goal: Off', value: 'goal' });
   if (data.connected) actions.push({ label: 'Replace SimpleFIN Connection', value: 'replace' }, { label: 'Disconnect SimpleFIN', value: 'disconnect', destructive: true });
   else actions.push({ label: 'Connect SimpleFIN', value: 'replace' });
   const choice = await actionSheet({ title: 'Finances', message: data.connected ? updatedLine() : '', actions });
-  if (choice === 'sample') return location.assign('/sample/index.html#/');
   if (choice === 'lock') return lockMenu();
   if (choice === 'goal') return goalPicker();
   if (choice === 'replace') return connectSheet();
